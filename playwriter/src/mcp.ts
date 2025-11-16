@@ -11,6 +11,23 @@ import { getCdpUrl } from './utils.js'
 
 const require = createRequire(import.meta.url)
 
+const usefulGlobals = {
+  setTimeout,
+  setInterval,
+  clearTimeout,
+  clearInterval,
+  URL,
+  URLSearchParams,
+  fetch,
+  Buffer,
+  TextEncoder,
+  TextDecoder,
+  crypto,
+  AbortController,
+  AbortSignal,
+  structuredClone,
+} as const
+
 interface State {
   isConnected: boolean
   page: Page | null
@@ -34,6 +51,8 @@ interface VMContext {
   require: NodeRequire
   import: (specifier: string) => Promise<any>
 }
+
+type VMContextWithGlobals = VMContext & typeof usefulGlobals
 
 const state: State = {
   isConnected: false,
@@ -215,7 +234,7 @@ server.tool(
         throw new Error('accessibilitySnapshot is not available on this page')
       }
 
-      let vmContextObj: VMContext = {
+      let vmContextObj: VMContextWithGlobals = {
         page,
         context,
         state,
@@ -226,7 +245,7 @@ server.tool(
 
           Object.keys(state).forEach(key => delete state[key])
 
-          const resetObj: VMContext = {
+          const resetObj: VMContextWithGlobals = {
             page: newPage,
             context: newContext,
             state,
@@ -234,14 +253,16 @@ server.tool(
             accessibilitySnapshot,
             resetPlaywright: vmContextObj.resetPlaywright,
             require,
-            import: vmContextObj.import
+            import: vmContextObj.import,
+            ...usefulGlobals
           }
           Object.keys(vmContextObj).forEach(key => delete (vmContextObj as any)[key])
           Object.assign(vmContextObj, resetObj)
           return { page: newPage, context: newContext }
         },
         require,
-        import: (specifier: string) => import(specifier)
+        import: (specifier: string) => import(specifier),
+        ...usefulGlobals
       }
 
       const vmContext = vm.createContext(vmContextObj)

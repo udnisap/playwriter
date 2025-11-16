@@ -15,6 +15,7 @@ it will control an existing user Chrome window. The js code  will be run in a sa
 - page, the first page the user opened and made it accessible to this MCP. do things like `page.url()` to see current url. assume the user wants you to use this page for your playwright code
 - require: node's require function to load CommonJS modules
 - import: async import function to dynamically import ES modules. for example `const fs = await import('node:fs')`
+- all standard Node.js globals: setTimeout, setInterval, clearTimeout, clearInterval, URL, URLSearchParams, fetch, Buffer, TextEncoder, TextDecoder, crypto, AbortController, AbortSignal, structuredClone
 
 the chrome window can have more than one page. you can see other pages with `context.pages().find((p) => p.url().includes('localhost'))`. you can also open and close pages: `state.newPage = await context.newPage()`. store the page in state so that you can reuse it later
 
