@@ -46,14 +46,6 @@ example:
                         - /url: /docs/installation
                     - link "Components" [ref=e14] [cursor=pointer]:
                         - /url: /docs/components
-                    - link "Blocks" [ref=e15] [cursor=pointer]:
-                        - /url: /blocks
-                    - link "Charts" [ref=e16] [cursor=pointer]:
-                        - /url: /charts/area
-                    - link "Themes" [ref=e17] [cursor=pointer]:
-                        - /url: /themes
-                    - link "Colors" [ref=e18] [cursor=pointer]:
-                        - /url: /colors
 ```
 
 Then you can use `page.locator(`aria-ref=${ref}`)` to get an element with a specific `ref` and interact with it.
