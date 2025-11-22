@@ -383,7 +383,7 @@ server.tool(
         responseText += 'Code executed successfully (no output)'
       }
 
-      const MAX_LENGTH = 1000
+      const MAX_LENGTH = 5000
       let finalText = responseText.trim()
       if (finalText.length > MAX_LENGTH) {
         finalText = finalText.slice(0, MAX_LENGTH) + `\n\n[Truncated to ${MAX_LENGTH} characters. Better manage your logs or paginate them to read the full logs]`

@@ -2,14 +2,26 @@ import { createMCPClient } from './mcp-client.js'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
-import { chromium } from 'playwright-core'
+import { chromium, BrowserContext } from 'playwright-core'
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
+import { getCdpUrl } from './utils.js'
 
 import { spawn } from 'node:child_process'
 
+
 const execAsync = promisify(exec)
+
+async function getExtensionServiceWorker(context: BrowserContext) {
+    let serviceWorker = context.serviceWorkers().find(sw => sw.url().startsWith('chrome-extension://'))
+    if (!serviceWorker) {
+        serviceWorker = await context.waitForEvent('serviceworker', {
+            predicate: (sw) => sw.url().startsWith('chrome-extension://')
+        })
+    }
+    return serviceWorker
+}
 
 function js(strings: TemplateStringsArray, ...values: any[]): string {
     return strings.reduce(
@@ -52,7 +64,7 @@ describe('MCP Server Tests', () => {
             cwd: process.cwd(),
             stdio: 'inherit'
         })
-        
+
         // Wait for port 19988 to be ready
         await new Promise<void>((resolve, reject) => {
              let retries = 0
@@ -73,7 +85,7 @@ describe('MCP Server Tests', () => {
                  }
              }, 1000)
         })
-        
+
         const result = await createMCPClient()
         client = result.client
         cleanup = result.cleanup
@@ -98,7 +110,7 @@ describe('MCP Server Tests', () => {
         // Create a page to attach to
         const page = await browserContext.newPage()
         await page.goto('about:blank')
-        
+
         // Connect the tab
         await serviceWorker.evaluate(async () => {
              // @ts-ignore
@@ -115,7 +127,7 @@ describe('MCP Server Tests', () => {
             relayServerProcess.kill()
         }
         await killProcessOnPort(19988)
-        
+
         if (userDataDir) {
              try {
                 fs.rmSync(userDataDir, { recursive: true, force: true })
@@ -264,21 +276,15 @@ describe('MCP Server Tests', () => {
         if (!browserContext) throw new Error('Browser not initialized')
         
         // Find the correct service worker by URL
-        const extensionPath = path.resolve('../extension/dist')
-        let serviceWorker = browserContext.serviceWorkers().find(sw => sw.url().startsWith('chrome-extension://'))
-        
-        if (!serviceWorker) {
-            serviceWorker = await browserContext.waitForEvent('serviceworker', {
-                predicate: (sw) => sw.url().startsWith('chrome-extension://')
-            })
-        }
+        const serviceWorker = await getExtensionServiceWorker(browserContext)
 
         // 1. Create a new page
         const page = await browserContext.newPage()
-        const testUrl = 'https://example.com/'
+        const testUrl = 'https://example.com/toggling'
         await page.goto(testUrl)
+
         await page.bringToFront()
-        
+
         // 2. Enable extension on this new tab
         // Since it's a new page, extension is not connected yet
         const result = await serviceWorker.evaluate(async () => {
@@ -288,8 +294,7 @@ describe('MCP Server Tests', () => {
         expect(result.isConnected).toBe(true)
 
         // 3. Verify we can connect via direct CDP and see the page
-        const randomId = Math.random().toString(36).substring(7)
-        const cdpUrl = `ws://localhost:19988/cdp/${randomId}`
+        const cdpUrl = getCdpUrl()
         let directBrowser = await chromium.connectOverCDP(cdpUrl)
         let contexts = directBrowser.contexts()
         let pages = contexts[0].pages()
@@ -310,22 +315,14 @@ describe('MCP Server Tests', () => {
 
         // 5. Try to connect/use the page. 
         // connecting to relay will succeed, but listing pages should NOT show our page
-        // OR if we try to send command to the previous targetId (via session), it should fail
         
         // Connect to relay again
         directBrowser = await chromium.connectOverCDP(cdpUrl)
         contexts = directBrowser.contexts()
-        pages = contexts[0].pages() // this calls Target.getTargets internally via contexts() or pages()? 
-        // Actually contexts() just returns what it knows.
-        // If relay sent detachedFromTarget, the page should be gone from the context.
+        pages = contexts[0].pages()
         
         foundPage = pages.find(p => p.url() === testUrl)
         expect(foundPage).toBeUndefined()
-        
-        // Also try to send a command to the old target ID if possible? 
-        // Hard to do with high-level Playwright API on the browser object.
-        // We can try to use a raw CDPSession on the browser target if we knew how to route it.
-        // But checking it's gone is good enough for "connection disabled".
         
         await directBrowser.close()
 
@@ -337,9 +334,6 @@ describe('MCP Server Tests', () => {
         expect(resultEnabled.isConnected).toBe(true)
 
         // 7. Verify page is back
-        // Note: targetId might have changed! Fetch it again just in case, or rely on relay to update routing.
-        // But relay routing is based on `sessionId`. New session ID generated on attach.
-        // The URL path param `targetId` is just a label.
         
         directBrowser = await chromium.connectOverCDP(cdpUrl)
         // Wait a bit for targets to populate
@@ -359,6 +353,7 @@ describe('MCP Server Tests', () => {
         await directBrowser.close()
         await page.close()
     })
+
 })
 function tryJsonParse(str: string) {
     try {

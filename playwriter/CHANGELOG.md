@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.9
+
+### Patch Changes
+
+- Added `tabs` permission to extension manifest to fix `chrome.tabs` access issues
+- Implemented `toggleExtensionForActiveTab` global helper in extension background script
+- Automated extension loading and toggling in MCP tests using `chromium.launchPersistentContext`
+- Added comprehensive tests for extension lifecycle:
+  - Toggling extension on new and existing pages
+  - Verifying direct CDP connection to relay
+  - Handling Playwright connection before extension attachment
+- Fixed `getCdpUrl` utility usage in tests
+- Updated tests to use unique URLs for better debugging
+
 ## 0.0.8
 
 ### Patch Changes
