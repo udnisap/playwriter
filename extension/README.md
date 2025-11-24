@@ -2,6 +2,8 @@
 
 Control your Chrome browser via Model Context Protocol (MCP) using Chrome DevTools Protocol (CDP) events.
 
+[**Install from Chrome Web Store**](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe)
+
 ## What is Playwriter MCP?
 
 Playwriter MCP is a Chrome extension that enables Playwright to connect to your existing Chrome instance without spawning a new browser or requiring Chrome to be started in CDP mode. This allows AI assistants and automation tools to interact with your browser seamlessly through the Model Context Protocol.
@@ -42,7 +44,7 @@ This extension requires the following permissions:
 
 ## Getting Started
 
-1. Install the extension from the Chrome Web Store
+1. [Install the extension from the Chrome Web Store](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe)
 2. Navigate to any webpage
 3. Click the Playwriter MCP extension icon
 4. The debugger will attach and the icon will turn green when connected
