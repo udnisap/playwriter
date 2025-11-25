@@ -1,9 +1,9 @@
 <div align='center'>
     <br/>
     <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="banner-dark.jpg" />
-        <source media="(prefers-color-scheme: light)" srcset="banner.jpg" />
-        <img src="banner.jpg" alt="Playwriter - For browser automation MCP" width="600" />
+        <source media="(prefers-color-scheme: dark)" srcset="banner-dark.png" />
+        <source media="(prefers-color-scheme: light)" srcset="banner.png" />
+        <img src="banner.png" alt="Playwriter - For browser automation MCP" width="600" />
     </picture>
     <br/>
     <br/>
