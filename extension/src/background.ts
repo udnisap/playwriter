@@ -636,7 +636,7 @@ const icons = {
     },
     title: 'Connected - Click to disconnect',
     badgeText: '',
-    badgeColor: undefined,
+    badgeColor: [0, 0, 0, 0] as [number, number, number, number],
   },
   connecting: {
     path: {
@@ -677,6 +677,8 @@ async function updateIcons(): Promise<void> {
   const state = store.getState()
   const { connectionState, tabs, errorText } = state
 
+  const connectedCount = Array.from(tabs.values()).filter((t) => t.state === 'connected').length
+
   const allTabs = await chrome.tabs.query({})
   const allTabIds = [undefined, ...allTabs.map((tab) => tab.id).filter((id): id is number => id !== undefined)]
 
@@ -698,10 +700,17 @@ async function updateIcons(): Promise<void> {
       return iconConfig.title
     })()
 
+    const badgeText = (() => {
+      if (iconConfig === icons.connected || iconConfig === icons.disconnected) {
+        return connectedCount > 0 ? String(connectedCount) : ''
+      }
+      return iconConfig.badgeText
+    })()
+
     void chrome.action.setIcon({ tabId, path: iconConfig.path })
     void chrome.action.setTitle({ tabId, title })
     if (iconConfig.badgeColor) void chrome.action.setBadgeBackgroundColor({ tabId, color: iconConfig.badgeColor })
-    void chrome.action.setBadgeText({ tabId, text: iconConfig.badgeText })
+    void chrome.action.setBadgeText({ tabId, text: badgeText })
   }
 }
 
