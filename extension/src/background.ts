@@ -626,6 +626,12 @@ async function resetDebugger(): Promise<void> {
   }
 }
 
+function isRestrictedUrl(url: string | undefined): boolean {
+  if (!url) return true
+  const restrictedPrefixes = ['chrome://', 'chrome-extension://', 'devtools://', 'edge://']
+  return restrictedPrefixes.some((prefix) => url.startsWith(prefix))
+}
+
 const icons = {
   connected: {
     path: {
@@ -647,29 +653,40 @@ const icons = {
     },
     title: 'Connecting...',
     badgeText: '...',
-    badgeColor: '#FF9800',
+    badgeColor: [0, 0, 0, 0] as [number, number, number, number],
   },
   disconnected: {
+    path: {
+      '16': '/icons/icon-black-16.png',
+      '32': '/icons/icon-black-32.png',
+      '48': '/icons/icon-black-48.png',
+      '128': '/icons/icon-black-128.png',
+    },
+    title: 'Click to attach debugger',
+    badgeText: '',
+    badgeColor: [0, 0, 0, 0] as [number, number, number, number],
+  },
+  restricted: {
     path: {
       '16': '/icons/icon-gray-16.png',
       '32': '/icons/icon-gray-32.png',
       '48': '/icons/icon-gray-48.png',
-      '128': '/icons/icon-gray-48.png',
+      '128': '/icons/icon-gray-128.png',
     },
-    title: 'Click to attach debugger',
+    title: 'Cannot attach to this page',
     badgeText: '',
-    badgeColor: '#333333',
+    badgeColor: [0, 0, 0, 0] as [number, number, number, number],
   },
   error: {
     path: {
       '16': '/icons/icon-gray-16.png',
       '32': '/icons/icon-gray-32.png',
       '48': '/icons/icon-gray-48.png',
-      '128': '/icons/icon-gray-48.png',
+      '128': '/icons/icon-gray-128.png',
     },
     title: 'Error',
     badgeText: '!',
-    badgeColor: '#f44336',
+    badgeColor: [0, 0, 0, 0] as [number, number, number, number],
   },
 } as const
 
@@ -680,10 +697,12 @@ async function updateIcons(): Promise<void> {
   const connectedCount = Array.from(tabs.values()).filter((t) => t.state === 'connected').length
 
   const allTabs = await chrome.tabs.query({})
+  const tabUrlMap = new Map(allTabs.map((tab) => [tab.id, tab.url]))
   const allTabIds = [undefined, ...allTabs.map((tab) => tab.id).filter((id): id is number => id !== undefined)]
 
   for (const tabId of allTabIds) {
     const tabInfo = tabId !== undefined ? tabs.get(tabId) : undefined
+    const tabUrl = tabId !== undefined ? tabUrlMap.get(tabId) : undefined
 
     const iconConfig = (() => {
       if (connectionState === 'error') return icons.error
@@ -691,6 +710,7 @@ async function updateIcons(): Promise<void> {
       if (tabInfo?.state === 'error') return icons.error
       if (tabInfo?.state === 'connecting') return icons.connecting
       if (tabInfo?.state === 'connected') return icons.connected
+      if (tabId !== undefined && isRestrictedUrl(tabUrl)) return icons.restricted
       return icons.disconnected
     })()
 
@@ -701,7 +721,7 @@ async function updateIcons(): Promise<void> {
     })()
 
     const badgeText = (() => {
-      if (iconConfig === icons.connected || iconConfig === icons.disconnected) {
+      if (iconConfig === icons.connected || iconConfig === icons.disconnected || iconConfig === icons.restricted) {
         return connectedCount > 0 ? String(connectedCount) : ''
       }
       return iconConfig.badgeText
@@ -728,6 +748,11 @@ async function onTabActivated(activeInfo: chrome.tabs.TabActiveInfo): Promise<vo
 async function onActionClicked(tab: chrome.tabs.Tab): Promise<void> {
   if (!tab.id) {
     logger.debug('No tab ID available')
+    return
+  }
+
+  if (isRestrictedUrl(tab.url)) {
+    logger.debug('Cannot attach to restricted URL:', tab.url)
     return
   }
 
