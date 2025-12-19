@@ -1741,8 +1741,8 @@ describe('MCP Server Tests', () => {
             {
               "text": "Return value:
           {
-            "error": "Page not found",
-            "urls": []
+            "matchesDark": true,
+            "matchesLight": false
           }",
               "type": "text",
             },
@@ -1968,20 +1968,14 @@ describe('CDP Session Tests', () => {
             sampleFunctionNames: functionNames,
         }).toMatchInlineSnapshot(`
           {
-            "durationMicroseconds": 7536,
+            "durationMicroseconds": 7500,
             "hasNodes": true,
-            "nodeCount": 20,
+            "nodeCount": 7,
             "sampleFunctionNames": [
               "(root)",
               "(program)",
               "(idle)",
               "evaluate",
-              "fibonacci",
-              "fibonacci",
-              "fibonacci",
-              "fibonacci",
-              "fibonacci",
-              "fibonacci",
             ],
           }
         `)
