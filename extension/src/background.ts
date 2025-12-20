@@ -706,10 +706,10 @@ function isRestrictedUrl(url: string | undefined): boolean {
 const icons = {
   connected: {
     path: {
-      '16': '/icons/icon-16.png',
-      '32': '/icons/icon-32.png',
-      '48': '/icons/icon-48.png',
-      '128': '/icons/icon-128.png',
+      '16': '/icons/icon-green-16.png',
+      '32': '/icons/icon-green-32.png',
+      '48': '/icons/icon-green-48.png',
+      '128': '/icons/icon-green-128.png',
     },
     title: 'Connected - Click to disconnect',
     badgeText: '',

@@ -15,6 +15,13 @@ import { getCdpUrl, LOG_FILE_PATH } from './utils.js'
 import { waitForPageLoad, WaitForPageLoadOptions, WaitForPageLoadResult } from './wait-for-page-load.js'
 import { getCDPSessionForPage, CDPSession } from './cdp-session.js'
 
+class CodeExecutionTimeoutError extends Error {
+  constructor(timeout: number) {
+    super(`Code execution timed out after ${timeout}ms`)
+    this.name = 'CodeExecutionTimeoutError'
+  }
+}
+
 const require = createRequire(import.meta.url)
 
 const usefulGlobals = {
@@ -616,7 +623,7 @@ server.tool(
           displayErrors: true,
         }),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Code execution timed out after ${timeout}ms`)), timeout),
+          setTimeout(() => reject(new CodeExecutionTimeoutError(timeout)), timeout),
         ),
       ])
 
@@ -655,7 +662,7 @@ server.tool(
 
       const logsText = formatConsoleLogs(consoleLogs, 'Console output (before error)')
 
-      const isTimeoutError = error.name === 'TimeoutError' || error.message.includes('Timeout')
+      const isTimeoutError = error instanceof CodeExecutionTimeoutError || error.name === 'TimeoutError'
       if (!isTimeoutError) {
         sendLogToRelayServer('error', '[MCP] Error:', errorStack)
       }
