@@ -354,6 +354,8 @@ async function attachTab(tabId: number): Promise<Protocol.Target.TargetInfo> {
   await chrome.debugger.attach(debuggee, '1.3')
   logger.debug('Debugger attached successfully to tab:', tabId)
 
+  await chrome.debugger.sendCommand(debuggee, 'Page.enable')
+
   await sleep(400)
 
   const result = (await chrome.debugger.sendCommand(
@@ -716,7 +718,7 @@ async function resetDebugger(): Promise<void> {
 }
 
 function isRestrictedUrl(url: string | undefined): boolean {
-  if (!url) return true
+  if (!url) return false
   const restrictedPrefixes = ['chrome://', 'chrome-extension://', 'devtools://', 'edge://']
   return restrictedPrefixes.some((prefix) => url.startsWith(prefix))
 }
