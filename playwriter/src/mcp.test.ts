@@ -435,7 +435,7 @@ describe('MCP Server Tests', () => {
         contexts = directBrowser.contexts()
         // pages() might need a moment if target attached event comes in
         if (contexts[0].pages().length === 0) {
-             await new Promise(r => setTimeout(r, 200))
+             await new Promise(r => setTimeout(r, 100))
         }
         pages = contexts[0].pages()
 
@@ -677,7 +677,7 @@ describe('MCP Server Tests', () => {
         // 3. Verify via CDP that the correct URL is shown
         const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
         // Wait for sync
-        await new Promise(r => setTimeout(r, 200))
+        await new Promise(r => setTimeout(r, 100))
 
         const cdpPage = browser.contexts()[0].pages().find(p => p.url() === targetUrl)
 
@@ -768,7 +768,7 @@ describe('MCP Server Tests', () => {
 
         // Wait for extension to fully reconnect and relay server to be ready
         console.log('Waiting for reconnection to stabilize...')
-        await new Promise(resolve => setTimeout(resolve, 200))
+        await new Promise(resolve => setTimeout(resolve, 100))
 
         // 5. Reset the MCP client's playwright connection since it was closed by disconnectEverything
         console.log('Resetting MCP playwright connection...')
@@ -1233,7 +1233,7 @@ describe('MCP Server Tests', () => {
             await globalThis.toggleExtensionForActiveTab()
         })
 
-        await new Promise(r => setTimeout(r, 300))
+        await new Promise(r => setTimeout(r, 400))
 
         const [mcpResult, cdpBrowser] = await Promise.all([
             client.callTool({
@@ -1515,7 +1515,7 @@ describe('MCP Server Tests', () => {
             await globalThis.toggleExtensionForActiveTab()
         })
 
-        await new Promise(r => setTimeout(r, 300))
+        await new Promise(r => setTimeout(r, 400))
 
         const result = await client.callTool({
             name: 'execute',
@@ -1673,14 +1673,14 @@ describe('MCP Server Tests', () => {
 
         const enableResult = await serviceWorker.evaluate(async (url) => {
             const tab = await chrome.tabs.create({ url, active: true })
-            await new Promise(r => setTimeout(r, 200))
+            await new Promise(r => setTimeout(r, 100))
             return await globalThis.toggleExtensionForActiveTab()
         }, targetUrl)
 
         console.log('Extension enabled:', enableResult)
         expect(enableResult.isConnected).toBe(true)
 
-        await new Promise(r => setTimeout(r, 200))
+        await new Promise(r => setTimeout(r, 100))
 
         const { Stagehand } = await import('@browserbasehq/stagehand')
 
@@ -2136,7 +2136,7 @@ describe('CDP Session Tests', () => {
         expect(initialPageTarget?.url).toBe('https://example.com/')
 
         await cdpPage!.goto('https://example.org/', { waitUntil: 'domcontentloaded' })
-        await new Promise(r => setTimeout(r, 200))
+        await new Promise(r => setTimeout(r, 100))
 
         const afterNavTargets = await cdpSession.send('Target.getTargets')
         const allPageTargets = afterNavTargets.targetInfos.filter(t => t.type === 'page')
@@ -2510,7 +2510,7 @@ describe('CDP Session Tests', () => {
                 }
             `,
         })
-        await new Promise(r => setTimeout(r, 200))
+        await new Promise(r => setTimeout(r, 100))
 
         const scripts = editor.list()
         expect(scripts.length).toBeGreaterThan(0)
