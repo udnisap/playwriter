@@ -104,7 +104,20 @@ const lastSnapshots: WeakMap<Page, string> = new WeakMap()
 const cdpSessionCache: WeakMap<Page, CDPSession> = new WeakMap()
 
 const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
+const REMOTE_URL = process.env.PLAYWRITER_URL
 const NO_TABS_ERROR = `No browser tabs are connected. Please install and enable the Playwriter extension on at least one tab: https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe`
+
+function parseRemoteUrl() {
+  if (!REMOTE_URL) {
+    return null
+  }
+  const url = new URL(REMOTE_URL)
+  return {
+    host: url.hostname,
+    port: Number(url.port) || 19988,
+    query: url.search.slice(1),
+  }
+}
 
 async function setDeviceScaleFactorForMacOS(context: BrowserContext): Promise<void> {
   if (os.platform() !== 'darwin') {
@@ -144,9 +157,17 @@ function clearConnectionState() {
   state.context = null
 }
 
+function getLogServerUrl(): string {
+  if (REMOTE_URL) {
+    const url = new URL(REMOTE_URL)
+    return `http://${url.host}/mcp-log`
+  }
+  return `http://127.0.0.1:${RELAY_PORT}/mcp-log`
+}
+
 async function sendLogToRelayServer(level: string, ...args: any[]) {
   try {
-    await fetch(`http://127.0.0.1:${RELAY_PORT}/mcp-log`, {
+    await fetch(getLogServerUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ level, args }),
@@ -220,9 +241,12 @@ async function ensureConnection(): Promise<{ browser: Browser; page: Page }> {
     return { browser: state.browser, page: state.page }
   }
 
-  await ensureRelayServer()
+  const remote = parseRemoteUrl()
+  if (!remote) {
+    await ensureRelayServer()
+  }
 
-  const cdpEndpoint = getCdpUrl({ port: RELAY_PORT })
+  const cdpEndpoint = getCdpUrl(remote || { port: RELAY_PORT })
   const browser = await chromium.connectOverCDP(cdpEndpoint)
 
   const contexts = browser.contexts()
@@ -350,9 +374,12 @@ async function resetConnection(): Promise<{ browser: Browser; page: Page; contex
   // DO NOT clear browser logs on reset - logs should persist across reconnections
   // browserLogs.clear()
 
-  await ensureRelayServer()
+  const remote = parseRemoteUrl()
+  if (!remote) {
+    await ensureRelayServer()
+  }
 
-  const cdpEndpoint = getCdpUrl({ port: RELAY_PORT })
+  const cdpEndpoint = getCdpUrl(remote || { port: RELAY_PORT })
   const browser = await chromium.connectOverCDP(cdpEndpoint)
 
   const contexts = browser.contexts()
@@ -654,7 +681,7 @@ server.tool(
         if (cached) {
           return cached
         }
-        const wsUrl = getCdpUrl({ port: RELAY_PORT })
+        const wsUrl = getCdpUrl(parseRemoteUrl() || { port: RELAY_PORT })
         const session = await getCDPSessionForPage({ page: options.page, wsUrl })
         cdpSessionCache.set(options.page, session)
         return session
@@ -817,13 +844,33 @@ server.tool(
   },
 )
 
-async function main() {
-  await ensureRelayServer()
+async function checkRemoteServer(url: string): Promise<void> {
+  const parsed = new URL(url)
+  const versionUrl = `http://${parsed.host}/version`
+  try {
+    const response = await fetch(versionUrl, { signal: AbortSignal.timeout(3000) })
+    if (!response.ok) {
+      throw new Error(`Server responded with status ${response.status}`)
+    }
+  } catch (error: any) {
+    const isConnectionError = error.cause?.code === 'ECONNREFUSED' || error.name === 'TimeoutError'
+    if (isConnectionError) {
+      throw new Error(
+        `Cannot connect to remote relay server at ${parsed.host}. ` +
+          `Make sure 'npx playwriter serve' is running on the host machine.`,
+      )
+    }
+    throw new Error(`Failed to connect to remote relay server: ${error.message}`)
+  }
+}
+
+export async function startMcp() {
+  if (!REMOTE_URL) {
+    await ensureRelayServer()
+  } else {
+    console.error(`Using remote CDP relay server: ${REMOTE_URL}`)
+    await checkRemoteServer(REMOTE_URL)
+  }
   const transport = new StdioServerTransport()
   await server.connect(transport)
 }
-
-main().catch((error) => {
-  console.error('Fatal error starting MCP server:', error)
-  process.exit(1)
-})

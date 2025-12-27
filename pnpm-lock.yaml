@@ -69,6 +69,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.21.1
         version: 1.21.1(@cfworker/json-schema@4.1.1)
+      cac:
+        specifier: ^6.7.14
+        version: 6.7.14
       chalk:
         specifier: ^5.6.2
         version: 5.6.2

@@ -2546,4 +2546,80 @@ describe('CDP Session Tests', () => {
         await browser.close()
         await page.close()
     }, 60000)
+
+    it('editor can list, read, and edit CSS stylesheets', async () => {
+        const browserContext = getBrowserContext()
+        const serviceWorker = await getExtensionServiceWorker(browserContext)
+
+        const page = await browserContext.newPage()
+        await page.goto('https://example.com/')
+        await page.bringToFront()
+
+        await serviceWorker.evaluate(async () => {
+            await globalThis.toggleExtensionForActiveTab()
+        })
+        await new Promise(r => setTimeout(r, 100))
+
+        const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
+        const cdpPage = browser.contexts()[0].pages().find(p => p.url().includes('example.com'))
+        expect(cdpPage).toBeDefined()
+
+        const wsUrl = getCdpUrl({ port: TEST_PORT })
+        const cdpSession = await getCDPSessionForPage({ page: cdpPage!, wsUrl })
+        const editor = new Editor({ cdp: cdpSession })
+
+        await editor.enable()
+
+        await cdpPage!.addStyleTag({
+            content: `
+                .editor-test-element {
+                    color: rgb(255, 0, 0);
+                    background-color: rgb(0, 0, 255);
+                }
+            `,
+        })
+        await new Promise(r => setTimeout(r, 100))
+
+        const stylesheets = editor.list({ pattern: /inline-css:/ })
+        expect(stylesheets.length).toBeGreaterThan(0)
+
+        const cssMatches = await editor.grep({ regex: /editor-test-element/, pattern: /inline-css:/ })
+        expect(cssMatches.length).toBeGreaterThan(0)
+
+        const cssMatch = cssMatches[0]
+        const { content, totalLines } = await editor.read({ url: cssMatch.url })
+        expect(content).toContain('editor-test-element')
+        expect(content).toContain('rgb(255, 0, 0)')
+        expect(totalLines).toBeGreaterThan(0)
+
+        await cdpPage!.evaluate(() => {
+            const el = document.createElement('div')
+            el.className = 'editor-test-element'
+            el.id = 'test-div'
+            el.textContent = 'Test'
+            document.body.appendChild(el)
+        })
+
+        const colorBefore = await cdpPage!.evaluate(() => {
+            const el = document.getElementById('test-div')!
+            return window.getComputedStyle(el).color
+        })
+        expect(colorBefore).toBe('rgb(255, 0, 0)')
+
+        await editor.edit({
+            url: cssMatch.url,
+            oldString: 'color: rgb(255, 0, 0);',
+            newString: 'color: rgb(0, 255, 0);',
+        })
+
+        const colorAfter = await cdpPage!.evaluate(() => {
+            const el = document.getElementById('test-div')!
+            return window.getComputedStyle(el).color
+        })
+        expect(colorAfter).toBe('rgb(0, 255, 0)')
+
+        cdpSession.close()
+        await browser.close()
+        await page.close()
+    }, 60000)
 })

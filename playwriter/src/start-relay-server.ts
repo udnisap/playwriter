@@ -20,8 +20,8 @@ process.on('exit', async (code) => {
 });
 
 
-export async function startServer({ port = 19988 }: { port?: number } = {}) {
-  const server = await startPlayWriterCDPRelayServer({ port, logger })
+export async function startServer({ port = 19988, host = '127.0.0.1', token }: { port?: number; host?: string; token?: string } = {}) {
+  const server = await startPlayWriterCDPRelayServer({ port, host, token, logger })
 
   console.log('CDP Relay Server running. Press Ctrl+C to stop.')
   console.log('Logs are being written to:', logger.logFilePath)

@@ -112,23 +112,32 @@ you have access to some functions in addition to playwright methods:
       // user triggers the code, then:
       if (dbg.isPaused()) { console.log(await dbg.getLocation()); console.log(await dbg.inspectLocalVariables()); await dbg.resume(); }
       ```
-- `createEditor({ cdp })`: creates an Editor instance for viewing and live-editing page scripts. Provides a Claude Code-like interface.
+- `createEditor({ cdp })`: creates an Editor instance for viewing and live-editing page scripts and CSS stylesheets. Provides a Claude Code-like interface.
     - `cdp`: a CDPSession from `getCDPSession`
-    - Methods: `enable()`, `list({ search? })`, `read({ url, offset?, limit? })`, `edit({ url, oldString, newString, dryRun? })`, `grep({ regex, include? })`, `write({ url, content, dryRun? })`
-    - Inline scripts (no URL) get synthetic URLs like `inline://42` - use grep() to find them by content
+    - Methods: `enable()`, `list({ pattern? })`, `read({ url, offset?, limit? })`, `edit({ url, oldString, newString, dryRun? })`, `grep({ regex, pattern? })`, `write({ url, content, dryRun? })`
+    - `pattern` parameter: regex to filter URLs (e.g. `/\.js/` for JS files, `/\.css/` for CSS files)
+    - Inline scripts get `inline://` URLs, inline styles get `inline-css://` URLs - use grep() to find them by content
     - Example:
       ```js
       const cdp = await getCDPSession({ page }); const editor = createEditor({ cdp }); await editor.enable();
-      // list available scripts (inline scripts have inline:// URLs)
-      console.log(editor.list({ search: 'app' }));
+      // list all scripts and stylesheets
+      console.log(editor.list());
+      // list only JS files
+      console.log(editor.list({ pattern: /\.js/ }));
+      // list only CSS files
+      console.log(editor.list({ pattern: /\.css/ }));
       // read a script with line numbers (like Claude Code Read tool)
       const { content, totalLines } = await editor.read({ url: 'https://example.com/app.js', offset: 0, limit: 50 });
       console.log(content);
       // edit a script (like Claude Code Edit tool) - exact string replacement
       await editor.edit({ url: 'https://example.com/app.js', oldString: 'DEBUG = false', newString: 'DEBUG = true' });
+      // edit CSS
+      await editor.edit({ url: 'https://example.com/styles.css', oldString: 'color: red', newString: 'color: blue' });
       // search across all scripts (like Grep) - useful for finding inline scripts
       const matches = await editor.grep({ regex: /myFunction/ });
       if (matches.length > 0) { await editor.edit({ url: matches[0].url, oldString: 'return false', newString: 'return true' }); }
+      // search only in CSS files
+      const cssMatches = await editor.grep({ regex: /background-color/, pattern: /\.css/ });
       ```
 
 example:

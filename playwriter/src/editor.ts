@@ -1,10 +1,5 @@
 import type { CDPSession } from './cdp-session.js'
 
-export interface ScriptInfo {
-  url: string
-  scriptId: string
-}
-
 export interface ReadResult {
   content: string
   totalLines: number
@@ -53,8 +48,8 @@ export interface EditResult {
 export class Editor {
   private cdp: CDPSession
   private enabled = false
-  private scripts = new Map<string, ScriptInfo>()
-  private scriptsByUrl = new Map<string, ScriptInfo>()
+  private scripts = new Map<string, string>()
+  private stylesheets = new Map<string, string>()
   private sourceCache = new Map<string, string>()
 
   constructor({ cdp }: { cdp: CDPSession }) {
@@ -66,14 +61,19 @@ export class Editor {
     this.cdp.on('Debugger.scriptParsed', (params) => {
       if (!params.url.startsWith('chrome') && !params.url.startsWith('devtools')) {
         const url = params.url || `inline://${params.scriptId}`
-        const info: ScriptInfo = {
-          url,
-          scriptId: params.scriptId,
-        }
-        this.scripts.set(params.scriptId, info)
-        this.scriptsByUrl.set(url, info)
+        this.scripts.set(url, params.scriptId)
         this.sourceCache.delete(params.scriptId)
       }
+    })
+
+    this.cdp.on('CSS.styleSheetAdded', (params) => {
+      const header = params.header
+      if (header.sourceURL?.startsWith('chrome') || header.sourceURL?.startsWith('devtools')) {
+        return
+      }
+      const url = header.sourceURL || `inline-css://${header.styleSheetId}`
+      this.stylesheets.set(url, header.styleSheetId)
+      this.sourceCache.delete(header.styleSheetId)
     })
   }
 
@@ -87,48 +87,67 @@ export class Editor {
       return
     }
     await this.cdp.send('Debugger.enable')
+    await this.cdp.send('DOM.enable')
+    await this.cdp.send('CSS.enable')
     this.enabled = true
   }
 
-  private getScriptByUrl(url: string): ScriptInfo {
-    const script = this.scriptsByUrl.get(url)
-    if (!script) {
-      const available = Array.from(this.scriptsByUrl.keys()).slice(0, 5)
-      throw new Error(`Script not found: ${url}\nAvailable: ${available.join(', ')}${this.scriptsByUrl.size > 5 ? '...' : ''}`)
+  private getIdByUrl(url: string): { scriptId: string } | { styleSheetId: string } {
+    const scriptId = this.scripts.get(url)
+    if (scriptId) {
+      return { scriptId }
     }
-    return script
+    const styleSheetId = this.stylesheets.get(url)
+    if (styleSheetId) {
+      return { styleSheetId }
+    }
+    const allUrls = [...Array.from(this.scripts.keys()), ...Array.from(this.stylesheets.keys())]
+    const available = allUrls.slice(0, 5)
+    throw new Error(`Resource not found: ${url}\nAvailable: ${available.join(', ')}${allUrls.length > 5 ? '...' : ''}`)
   }
 
   /**
-   * Lists available scripts. Use search to filter by URL substring.
+   * Lists available script and stylesheet URLs. Use pattern to filter by regex.
    *
    * @param options - Options
-   * @param options.search - Optional substring to filter URLs (case-insensitive)
-   * @returns Array of scripts with url and scriptId
+   * @param options.pattern - Optional regex to filter URLs
+   * @returns Array of URLs
    *
    * @example
    * ```ts
-   * // List all scripts
-   * const scripts = editor.list()
+   * // List all scripts and stylesheets
+   * const urls = editor.list()
+   *
+   * // List only JS files
+   * const jsFiles = editor.list({ pattern: /\.js/ })
+   *
+   * // List only CSS files
+   * const cssFiles = editor.list({ pattern: /\.css/ })
    *
    * // Search for specific scripts
-   * const appScripts = editor.list({ search: 'app' })
-   * const reactScripts = editor.list({ search: 'react' })
+   * const appScripts = editor.list({ pattern: /app/ })
    * ```
    */
-  list({ search }: { search?: string } = {}): ScriptInfo[] {
-    const scripts = Array.from(this.scripts.values())
-    const filtered = search ? scripts.filter((s) => s.url.toLowerCase().includes(search.toLowerCase())) : scripts
-    return filtered
+  list({ pattern }: { pattern?: RegExp } = {}): string[] {
+    const urls = [...Array.from(this.scripts.keys()), ...Array.from(this.stylesheets.keys())]
+
+    if (!pattern) {
+      return urls
+    }
+    return urls.filter((url) => {
+      const matches = pattern.test(url)
+      pattern.lastIndex = 0
+      return matches
+    })
   }
 
   /**
-   * Reads a script's source code by URL.
+   * Reads a script or stylesheet's source code by URL.
    * Returns line-numbered content like Claude Code's Read tool.
    * For inline scripts, use the `inline://` URL from list() or grep().
    *
    * @param options - Options
-   * @param options.url - Script URL (inline scripts have `inline://{id}` URLs)
+   * @param options.url - Script or stylesheet URL (inline scripts have `inline://{id}` URLs)
    * @param options.offset - Line number to start from (0-based, default 0)
    * @param options.limit - Number of lines to return (default 2000)
    * @returns Content with line numbers, total lines, and range info
@@ -140,8 +159,8 @@ export class Editor {
    *   url: 'https://example.com/app.js'
    * })
    *
-   * // Read inline script (URL from grep result)
-   * const { content } = await editor.read({ url: 'inline://42' })
+   * // Read a CSS file
+   * const { content } = await editor.read({ url: 'https://example.com/styles.css' })
    *
    * // Read lines 100-200
    * const { content } = await editor.read({
@@ -153,14 +172,8 @@ export class Editor {
    */
   async read({ url, offset = 0, limit = 2000 }: { url: string; offset?: number; limit?: number }): Promise<ReadResult> {
     await this.enable()
-    const script = this.getScriptByUrl(url)
-
-    let source = this.sourceCache.get(script.scriptId)
-    if (!source) {
-      const response = await this.cdp.send('Debugger.getScriptSource', { scriptId: script.scriptId })
-      source = response.scriptSource
-      this.sourceCache.set(script.scriptId, source)
-    }
+    const id = this.getIdByUrl(url)
+    const source = await this.getSource(id)
 
     const lines = source.split('\n')
     const totalLines = lines.length
@@ -178,12 +191,31 @@ export class Editor {
     }
   }
 
+  private async getSource(id: { scriptId: string } | { styleSheetId: string }): Promise<string> {
+    if ('styleSheetId' in id) {
+      const cached = this.sourceCache.get(id.styleSheetId)
+      if (cached) {
+        return cached
+      }
+      const response = await this.cdp.send('CSS.getStyleSheetText', { styleSheetId: id.styleSheetId })
+      this.sourceCache.set(id.styleSheetId, response.text)
+      return response.text
+    }
+    const cached = this.sourceCache.get(id.scriptId)
+    if (cached) {
+      return cached
+    }
+    const response = await this.cdp.send('Debugger.getScriptSource', { scriptId: id.scriptId })
+    this.sourceCache.set(id.scriptId, response.scriptSource)
+    return response.scriptSource
+  }
+
   /**
-   * Edits a script by replacing oldString with newString.
+   * Edits a script or stylesheet by replacing oldString with newString.
    * Like Claude Code's Edit tool - performs exact string replacement.
    *
    * @param options - Options
-   * @param options.url - Script URL (inline scripts have `inline://{id}` URLs)
+   * @param options.url - Script or stylesheet URL (inline scripts have `inline://{id}` URLs)
    * @param options.oldString - Exact string to find and replace
    * @param options.newString - Replacement string
    * @param options.dryRun - If true, validate without applying (default false)
@@ -191,18 +223,18 @@ export class Editor {
    *
    * @example
    * ```ts
-   * // Replace a string
+   * // Replace a string in JS
    * await editor.edit({
    *   url: 'https://example.com/app.js',
    *   oldString: 'const DEBUG = false',
    *   newString: 'const DEBUG = true'
    * })
    *
-   * // Edit inline script
+   * // Edit CSS
    * await editor.edit({
-   *   url: 'inline://42',
-   *   oldString: 'old code',
-   *   newString: 'new code'
+   *   url: 'https://example.com/styles.css',
+   *   oldString: 'color: red',
+   *   newString: 'color: blue'
    * })
    * ```
    */
@@ -218,14 +250,8 @@ export class Editor {
     dryRun?: boolean
   }): Promise<EditResult> {
     await this.enable()
-    const script = this.getScriptByUrl(url)
-
-    let source = this.sourceCache.get(script.scriptId)
-    if (!source) {
-      const response = await this.cdp.send('Debugger.getScriptSource', { scriptId: script.scriptId })
-      source = response.scriptSource
-      this.sourceCache.set(script.scriptId, source)
-    }
+    const id = this.getIdByUrl(url)
+    const source = await this.getSource(id)
 
     const matchCount = source.split(oldString).length - 1
     if (matchCount === 0) {
@@ -236,72 +262,79 @@ export class Editor {
     }
 
     const newSource = source.replace(oldString, newString)
+    return this.setSource(id, newSource, dryRun)
+  }
 
+  private async setSource(
+    id: { scriptId: string } | { styleSheetId: string },
+    content: string,
+    dryRun = false
+  ): Promise<EditResult> {
+    if ('styleSheetId' in id) {
+      await this.cdp.send('CSS.setStyleSheetText', { styleSheetId: id.styleSheetId, text: content })
+      if (!dryRun) {
+        this.sourceCache.set(id.styleSheetId, content)
+      }
+      return { success: true }
+    }
     const response = await this.cdp.send('Debugger.setScriptSource', {
-      scriptId: script.scriptId,
-      scriptSource: newSource,
+      scriptId: id.scriptId,
+      scriptSource: content,
       dryRun,
     })
-
     if (!dryRun) {
-      this.sourceCache.set(script.scriptId, newSource)
+      this.sourceCache.set(id.scriptId, content)
     }
-
-    return {
-      success: true,
-      stackChanged: response.stackChanged,
-    }
+    return { success: true, stackChanged: response.stackChanged }
   }
 
   /**
-   * Searches for a regex across all scripts.
+   * Searches for a regex across all scripts and stylesheets.
    * Like Claude Code's Grep tool - returns matching lines with context.
    *
    * @param options - Options
-   * @param options.regex - Regular expression to search for
-   * @param options.include - Optional URL substring to filter which scripts to search
+   * @param options.regex - Regular expression to search for in file contents
+   * @param options.pattern - Optional regex to filter which URLs to search
    * @returns Array of matches with url, line number, and line content
    *
    * @example
    * ```ts
-   * // Search all scripts for "fetchUser"
-   * const matches = await editor.grep({ regex: /fetchUser/ })
+   * // Search all scripts and stylesheets for "color"
+   * const matches = await editor.grep({ regex: /color/ })
    *
-   * // Search only in app scripts
+   * // Search only CSS files
    * const matches = await editor.grep({
-   *   regex: /TODO/i,
-   *   include: 'app'
+   *   regex: /background-color/,
+   *   pattern: /\.css/
    * })
    *
-   * // Regex search for console methods
+   * // Regex search for console methods in JS
    * const matches = await editor.grep({
-   *   regex: /console\.(log|error|warn)/
+   *   regex: /console\.(log|error|warn)/,
+   *   pattern: /\.js/
    * })
    * ```
    */
-  async grep({ regex, include }: { regex: RegExp; include?: string }): Promise<SearchMatch[]> {
+  async grep({ regex, pattern }: { regex: RegExp; pattern?: RegExp }): Promise<SearchMatch[]> {
     await this.enable()
 
     const matches: SearchMatch[] = []
-    const scripts = include ? this.list({ search: include }) : this.list()
+    const urls = this.list({ pattern })
 
-    for (const script of scripts) {
-      let source = this.sourceCache.get(script.scriptId)
-      if (!source) {
-        try {
-          const response = await this.cdp.send('Debugger.getScriptSource', { scriptId: script.scriptId })
-          source = response.scriptSource
-          this.sourceCache.set(script.scriptId, source)
-        } catch {
-          continue
-        }
+    for (const url of urls) {
+      let source: string
+      try {
+        const id = this.getIdByUrl(url)
+        source = await this.getSource(id)
+      } catch {
+        continue
       }
 
       const lines = source.split('\n')
       for (let i = 0; i < lines.length; i++) {
         if (regex.test(lines[i])) {
           matches.push({
-            url: script.url,
+            url,
             lineNumber: i + 1,
             lineContent: lines[i].trim().slice(0, 200),
           })
@@ -314,31 +347,17 @@ export class Editor {
   }
 
   /**
-   * Writes entire content to a script, replacing all existing code.
+   * Writes entire content to a script or stylesheet, replacing all existing code.
    * Use with caution - prefer edit() for targeted changes.
    *
    * @param options - Options
-   * @param options.url - Script URL (inline scripts have `inline://{id}` URLs)
-   * @param options.content - New script content
-   * @param options.dryRun - If true, validate without applying (default false)
+   * @param options.url - Script or stylesheet URL (inline scripts have `inline://{id}` URLs)
+   * @param options.content - New content
+   * @param options.dryRun - If true, validate without applying (default false, only works for JS)
    */
   async write({ url, content, dryRun = false }: { url: string; content: string; dryRun?: boolean }): Promise<EditResult> {
     await this.enable()
-    const script = this.getScriptByUrl(url)
-
-    const response = await this.cdp.send('Debugger.setScriptSource', {
-      scriptId: script.scriptId,
-      scriptSource: content,
-      dryRun,
-    })
-
-    if (!dryRun) {
-      this.sourceCache.set(script.scriptId, content)
-    }
-
-    return {
-      success: true,
-      stackChanged: response.stackChanged,
-    }
+    const id = this.getIdByUrl(url)
+    return this.setSource(id, content, dryRun)
   }
 }

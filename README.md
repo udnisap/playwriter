@@ -177,6 +177,24 @@ The irony is that by trying to make browser control "simpler" with dedicated too
 +---------------------+
 ```
 
+## Remote Agents (Devcontainers, VMs, SSH)
+
+Run agents in isolated environments (devcontainers, VMs, SSH) while controlling Chrome on your host.
+
+**On host (where Chrome runs):**
+
+```bash
+npx playwriter serve --token <secret>
+```
+
+**In container/VM (where agent runs):**
+
+```bash
+export PLAYWRITER_URL="ws://host.docker.internal:19988?token=<secret>"
+```
+
+Use `host.docker.internal` for devcontainers, or your host's IP for VMs/SSH.
+
 ## Security
 
 Playwriter is designed with security in mind, ensuring that only you can control your browser.

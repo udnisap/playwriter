@@ -6,7 +6,7 @@ async function listScripts() {
   const editor = createEditor({ cdp })
   await editor.enable()
 
-  const scripts = editor.list({ search: 'app' })
+  const scripts = editor.list({ pattern: /app/ })
   console.log(scripts)
 }
 
@@ -62,7 +62,7 @@ async function searchScripts() {
 
   const todoMatches = await editor.grep({
     regex: /TODO|FIXME/i,
-    include: 'app',
+    pattern: /app/,
   })
   console.log(todoMatches)
 }
@@ -101,4 +101,48 @@ async function editInlineScript() {
   }
 }
 
-export { listScripts, readScript, editScript, searchScripts, writeScript, editInlineScript }
+// Example: List and read CSS stylesheets
+async function readStylesheet() {
+  const cdp = await getCDPSession({ page })
+  const editor = createEditor({ cdp })
+  await editor.enable()
+
+  const stylesheets = editor.list({ pattern: /\.css/ })
+  console.log('Stylesheets:', stylesheets)
+
+  if (stylesheets.length > 0) {
+    const { content, totalLines } = await editor.read({
+      url: stylesheets[0],
+    })
+    console.log('Total lines:', totalLines)
+    console.log(content)
+  }
+}
+
+// Example: Edit a CSS stylesheet
+async function editStylesheet() {
+  const cdp = await getCDPSession({ page })
+  const editor = createEditor({ cdp })
+  await editor.enable()
+
+  await editor.edit({
+    url: 'https://example.com/styles.css',
+    oldString: 'color: red',
+    newString: 'color: blue',
+  })
+}
+
+// Example: Search CSS for specific properties
+async function searchStyles() {
+  const cdp = await getCDPSession({ page })
+  const editor = createEditor({ cdp })
+  await editor.enable()
+
+  const matches = await editor.grep({
+    regex: /background-color/,
+    pattern: /\.css/,
+  })
+  console.log(matches)
+}
+
+export { listScripts, readScript, editScript, searchScripts, writeScript, editInlineScript, readStylesheet, editStylesheet, searchStyles }

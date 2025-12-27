@@ -27,7 +27,7 @@ export async function createTransport({ args = [], port }: { args?: string[]; po
   }
   const transport = new StdioClientTransport({
     command: 'pnpm',
-    args: ['vite-node', path.join(path.dirname(__filename), 'mcp.ts'), ...args],
+    args: ['vite-node', path.join(path.dirname(__filename), 'cli.ts'), ...args],
     cwd: path.join(path.dirname(__filename), '..'),
     stderr: 'pipe',
     env,
