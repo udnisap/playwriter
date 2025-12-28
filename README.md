@@ -185,18 +185,30 @@ Run agents in isolated environments (devcontainers, VMs, SSH) while controlling 
 
 ```bash
 npx playwriter serve --token <secret>
+# or use environment variable:
+PLAYWRITER_TOKEN=<secret> npx playwriter serve
 ```
 
 **In container/VM (where agent runs):**
 
+Using environment variables:
+
 ```bash
-export PLAYWRITER_URL="ws://host.docker.internal:19988?token=<secret>"
+export PLAYWRITER_HOST="host.docker.internal"
+export PLAYWRITER_TOKEN="<secret>"
+```
+
+Or using CLI options:
+
+```bash
+npx playwriter --host host.docker.internal --token <secret>
 ```
 
 Use `host.docker.internal` for devcontainers, or your host's IP for VMs/SSH.
 
 ## Known Issues
 
+- **Do not use `bunx` to run the MCP.** Bun has incomplete support for the `ws` library's WebSocket events, which breaks playwright-core's CDP connection. Use `npx` instead. See bun issues: [#5951](https://github.com/oven-sh/bun/issues/5951), [#9911](https://github.com/oven-sh/bun/issues/9911)
 - If all pages urls return `about:blank` in every MCP session restart your Chrome browser. This seems to be a Chrome bug that sometimes happen. It is some hidden state in `chrome.debugger` Extensions API. Restarting the extension worker does not fix it. 
 - When connecting the MCP to a page, the browser may switch to light mode. This happens because Playwright, via CDP, automatically sends an "emulate media" command on start. If you'd like to see this behavior changed, you can upvote the related issue [here](https://github.com/microsoft/playwright/issues/37627).
 

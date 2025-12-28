@@ -3,9 +3,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export function getCdpUrl({ port = 19988, host = '127.0.0.1', query }: { port?: number; host?: string; query?: string } = {}) {
+export function getCdpUrl({ port = 19988, host = '127.0.0.1', token }: { port?: number; host?: string; token?: string } = {}) {
   const id = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}`
-  const queryString = query ? `?${query}` : ''
+  const queryString = token ? `?token=${token}` : ''
   return `ws://${host}:${port}/cdp/${id}${queryString}`
 }
 

@@ -11,16 +11,28 @@ const cli = cac('playwriter')
 
 cli
   .command('', 'Start the MCP server (default)')
-  .action(async () => {
+  .option('--host <host>', 'Remote relay server host to connect to (or use PLAYWRITER_HOST env var)')
+  .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
+  .action(async (options: { host?: string; token?: string }) => {
     const { startMcp } = await import('./mcp.js')
-    await startMcp()
+    await startMcp({
+      host: options.host,
+      token: options.token,
+    })
   })
 
 cli
   .command('serve', 'Start the CDP relay server for remote MCP connections')
   .option('--host <host>', 'Host to bind to', { default: '0.0.0.0' })
-  .option('--token <token>', 'Authentication token for /cdp/* endpoints')
+  .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
   .action(async (options: { host: string; token?: string }) => {
+    const token = options.token || process.env.PLAYWRITER_TOKEN
+    if (!token) {
+      console.error('Error: Authentication token is required.')
+      console.error('Provide --token <token> or set PLAYWRITER_TOKEN environment variable.')
+      process.exit(1)
+    }
+
     const logger = createFileLogger()
 
     process.title = 'playwriter-serve'
@@ -38,19 +50,19 @@ cli
     const server = await startPlayWriterCDPRelayServer({
       port: RELAY_PORT,
       host: options.host,
-      token: options.token,
+      token,
       logger,
     })
 
     console.log('Playwriter CDP relay server started')
     console.log(`  Host: ${options.host}`)
     console.log(`  Port: ${RELAY_PORT}`)
-    console.log(`  Token: ${options.token ? '(configured)' : '(none)'}`)
+    console.log(`  Token: (configured)`)
     console.log(`  Logs: ${logger.logFilePath}`)
     console.log('')
     console.log('Endpoints:')
     console.log(`  Extension: ws://${options.host}:${RELAY_PORT}/extension`)
-    console.log(`  CDP:       ws://${options.host}:${RELAY_PORT}/cdp/<client-id>${options.token ? '?token=<token>' : ''}`)
+    console.log(`  CDP:       ws://${options.host}:${RELAY_PORT}/cdp/<client-id>?token=<token>`)
     console.log('')
     console.log('Press Ctrl+C to stop.')
 

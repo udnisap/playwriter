@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { Page, Browser, BrowserContext, chromium } from 'playwright-core'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -104,18 +105,23 @@ const lastSnapshots: WeakMap<Page, string> = new WeakMap()
 const cdpSessionCache: WeakMap<Page, CDPSession> = new WeakMap()
 
 const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
-const REMOTE_URL = process.env.PLAYWRITER_URL
 const NO_TABS_ERROR = `No browser tabs are connected. Please install and enable the Playwriter extension on at least one tab: https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe`
 
-function parseRemoteUrl() {
-  if (!REMOTE_URL) {
+interface RemoteConfig {
+  host: string
+  port: number
+  token?: string
+}
+
+function getRemoteConfig(): RemoteConfig | null {
+  const host = process.env.PLAYWRITER_HOST
+  if (!host) {
     return null
   }
-  const url = new URL(REMOTE_URL)
   return {
-    host: url.hostname,
-    port: Number(url.port) || 19988,
-    query: url.search.slice(1),
+    host,
+    port: RELAY_PORT,
+    token: process.env.PLAYWRITER_TOKEN,
   }
 }
 
@@ -158,9 +164,9 @@ function clearConnectionState() {
 }
 
 function getLogServerUrl(): string {
-  if (REMOTE_URL) {
-    const url = new URL(REMOTE_URL)
-    return `http://${url.host}/mcp-log`
+  const remote = getRemoteConfig()
+  if (remote) {
+    return `http://${remote.host}:${remote.port}/mcp-log`
   }
   return `http://127.0.0.1:${RELAY_PORT}/mcp-log`
 }
@@ -241,7 +247,7 @@ async function ensureConnection(): Promise<{ browser: Browser; page: Page }> {
     return { browser: state.browser, page: state.page }
   }
 
-  const remote = parseRemoteUrl()
+  const remote = getRemoteConfig()
   if (!remote) {
     await ensureRelayServer()
   }
@@ -374,7 +380,7 @@ async function resetConnection(): Promise<{ browser: Browser; page: Page; contex
   // DO NOT clear browser logs on reset - logs should persist across reconnections
   // browserLogs.clear()
 
-  const remote = parseRemoteUrl()
+  const remote = getRemoteConfig()
   if (!remote) {
     await ensureRelayServer()
   }
@@ -681,7 +687,7 @@ server.tool(
         if (cached) {
           return cached
         }
-        const wsUrl = getCdpUrl(parseRemoteUrl() || { port: RELAY_PORT })
+        const wsUrl = getCdpUrl(getRemoteConfig() || { port: RELAY_PORT })
         const session = await getCDPSessionForPage({ page: options.page, wsUrl })
         cdpSessionCache.set(options.page, session)
         return session
@@ -846,9 +852,8 @@ server.tool(
   },
 )
 
-async function checkRemoteServer(url: string): Promise<void> {
-  const parsed = new URL(url)
-  const versionUrl = `http://${parsed.host}/version`
+async function checkRemoteServer({ host, port }: { host: string; port: number }): Promise<void> {
+  const versionUrl = `http://${host}:${port}/version`
   try {
     const response = await fetch(versionUrl, { signal: AbortSignal.timeout(3000) })
     if (!response.ok) {
@@ -858,7 +863,7 @@ async function checkRemoteServer(url: string): Promise<void> {
     const isConnectionError = error.cause?.code === 'ECONNREFUSED' || error.name === 'TimeoutError'
     if (isConnectionError) {
       throw new Error(
-        `Cannot connect to remote relay server at ${parsed.host}. ` +
+        `Cannot connect to remote relay server at ${host}:${port}. ` +
           `Make sure 'npx playwriter serve' is running on the host machine.`,
       )
     }
@@ -866,12 +871,20 @@ async function checkRemoteServer(url: string): Promise<void> {
   }
 }
 
-export async function startMcp() {
-  if (!REMOTE_URL) {
+export async function startMcp(options: { host?: string; token?: string } = {}) {
+  if (options.host) {
+    process.env.PLAYWRITER_HOST = options.host
+  }
+  if (options.token) {
+    process.env.PLAYWRITER_TOKEN = options.token
+  }
+
+  const remote = getRemoteConfig()
+  if (!remote) {
     await ensureRelayServer()
   } else {
-    console.error(`Using remote CDP relay server: ${REMOTE_URL}`)
-    await checkRemoteServer(REMOTE_URL)
+    console.error(`Using remote CDP relay server: ${remote.host}:${remote.port}`)
+    await checkRemoteServer(remote)
   }
   const transport = new StdioServerTransport()
   await server.connect(transport)
