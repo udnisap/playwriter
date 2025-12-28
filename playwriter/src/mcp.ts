@@ -18,6 +18,7 @@ import { waitForPageLoad, WaitForPageLoadOptions, WaitForPageLoadResult } from '
 import { getCDPSessionForPage, CDPSession } from './cdp-session.js'
 import { Debugger } from './debugger.js'
 import { Editor } from './editor.js'
+import { getStylesForLocator, formatStylesAsText, type StylesResult } from './styles.js'
 
 class CodeExecutionTimeoutError extends Error {
   constructor(timeout: number) {
@@ -77,6 +78,8 @@ interface VMContext {
   getCDPSession: (options: { page: Page }) => Promise<CDPSession>
   createDebugger: (options: { cdp: CDPSession }) => Debugger
   createEditor: (options: { cdp: CDPSession }) => Editor
+  getStylesForLocator: (options: { locator: any }) => Promise<StylesResult>
+  formatStylesAsText: (styles: StylesResult) => string
   require: NodeRequire
   import: (specifier: string) => Promise<any>
 }
@@ -701,6 +704,11 @@ server.tool(
         return new Editor(options)
       }
 
+      const getStylesForLocatorFn = async (options: { locator: any }) => {
+        const cdp = await getCDPSession({ page: options.locator.page() })
+        return getStylesForLocator({ locator: options.locator, cdp })
+      }
+
       let vmContextObj: VMContextWithGlobals = {
         page,
         context,
@@ -714,6 +722,8 @@ server.tool(
         getCDPSession,
         createDebugger,
         createEditor,
+        getStylesForLocator: getStylesForLocatorFn,
+        formatStylesAsText,
         resetPlaywright: async () => {
           const { page: newPage, context: newContext } = await resetConnection()
 
@@ -730,6 +740,8 @@ server.tool(
             getCDPSession,
             createDebugger,
             createEditor,
+            getStylesForLocator: getStylesForLocatorFn,
+            formatStylesAsText,
             resetPlaywright: vmContextObj.resetPlaywright,
             require,
             // TODO --experimental-vm-modules is needed to make import work in vm

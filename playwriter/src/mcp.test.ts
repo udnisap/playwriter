@@ -1550,6 +1550,193 @@ describe('MCP Server Tests', () => {
         await page.close()
     }, 60000)
 
+    it('should get styles for element using getStylesForLocator', async () => {
+        const browserContext = getBrowserContext()
+        const serviceWorker = await getExtensionServiceWorker(browserContext)
+
+        const page = await browserContext.newPage()
+        await page.setContent(`
+            <html>
+                <head>
+                    <style>
+                        body { font-family: Arial, sans-serif; color: #333; }
+                        .container { padding: 20px; margin: 10px; }
+                        #main-btn { background-color: blue; color: white; border-radius: 4px; }
+                        .btn { padding: 8px 16px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <button id="main-btn" class="btn" style="font-weight: bold;">Click Me</button>
+                    </div>
+                </body>
+            </html>
+        `)
+        await page.bringToFront()
+
+        await serviceWorker.evaluate(async () => {
+            await globalThis.toggleExtensionForActiveTab()
+        })
+
+        await new Promise(r => setTimeout(r, 400))
+
+        const stylesResult = await client.callTool({
+            name: 'execute',
+            arguments: {
+                code: js`
+                    let testPage;
+                    for (const p of context.pages()) {
+                        const html = await p.content();
+                        if (html.includes('main-btn')) { testPage = p; break; }
+                    }
+                    if (!testPage) throw new Error('Test page not found');
+                    const btn = testPage.locator('#main-btn');
+                    const styles = await getStylesForLocator({ locator: btn });
+                    return styles;
+                `,
+                timeout: 30000,
+            },
+        })
+
+        expect(stylesResult.isError).toBeFalsy()
+        const stylesText = (stylesResult.content as any)[0]?.text || ''
+        expect(stylesText).toMatchInlineSnapshot(`
+          "Return value:
+          {
+            "element": "button#main-btn.btn",
+            "inlineStyle": {
+              "font-weight": "bold"
+            },
+            "rules": [
+              {
+                "selector": ".btn",
+                "source": null,
+                "origin": "regular",
+                "declarations": {
+                  "padding": "8px 16px",
+                  "padding-top": "8px",
+                  "padding-right": "16px",
+                  "padding-bottom": "8px",
+                  "padding-left": "16px"
+                },
+                "inheritedFrom": null
+              },
+              {
+                "selector": "#main-btn",
+                "source": null,
+                "origin": "regular",
+                "declarations": {
+                  "background-color": "blue",
+                  "color": "white",
+                  "border-radius": "4px",
+                  "border-top-left-radius": "4px",
+                  "border-top-right-radius": "4px",
+                  "border-bottom-right-radius": "4px",
+                  "border-bottom-left-radius": "4px"
+                },
+                "inheritedFrom": null
+              },
+              {
+                "selector": ".container",
+                "source": null,
+                "origin": "regular",
+                "declarations": {
+                  "padding": "20px",
+                  "margin": "10px",
+                  "padding-top": "20px",
+                  "padding-right": "20px",
+                  "padding-bottom": "20px",
+                  "padding-left": "20px",
+                  "margin-top": "10px",
+                  "margin-right": "10px",
+                  "margin-bottom": "10px",
+                  "margin-left": "10px"
+                },
+                "inheritedFrom": "ancestor[1]"
+              },
+              {
+                "selector": "body",
+                "source": null,
+                "origin": "regular",
+                "declarations": {
+                  "font-family": "Arial, sans-serif",
+                  "color": "rgb(51, 51, 51)"
+                },
+                "inheritedFrom": "ancestor[2]"
+              }
+            ]
+          }"
+        `)
+
+        const formattedResult = await client.callTool({
+            name: 'execute',
+            arguments: {
+                code: js`
+                    let testPage;
+                    for (const p of context.pages()) {
+                        const html = await p.content();
+                        if (html.includes('main-btn')) { testPage = p; break; }
+                    }
+                    if (!testPage) throw new Error('Test page not found');
+                    const btn = testPage.locator('#main-btn');
+                    const styles = await getStylesForLocator({ locator: btn });
+                    return formatStylesAsText(styles);
+                `,
+                timeout: 30000,
+            },
+        })
+
+        expect(formattedResult.isError).toBeFalsy()
+        const formattedText = (formattedResult.content as any)[0]?.text || ''
+        expect(formattedText).toMatchInlineSnapshot(`
+          "Return value:
+          Element: button#main-btn.btn
+
+          Inline styles:
+            font-weight: bold
+
+          Matched rules:
+            .btn {
+              padding: 8px 16px;
+              padding-top: 8px;
+              padding-right: 16px;
+              padding-bottom: 8px;
+              padding-left: 16px;
+            }
+            #main-btn {
+              background-color: blue;
+              color: white;
+              border-radius: 4px;
+              border-top-left-radius: 4px;
+              border-top-right-radius: 4px;
+              border-bottom-right-radius: 4px;
+              border-bottom-left-radius: 4px;
+            }
+
+          Inherited from ancestor[1]:
+            .container {
+              padding: 20px;
+              margin: 10px;
+              padding-top: 20px;
+              padding-right: 20px;
+              padding-bottom: 20px;
+              padding-left: 20px;
+              margin-top: 10px;
+              margin-right: 10px;
+              margin-bottom: 10px;
+              margin-left: 10px;
+            }
+
+          Inherited from ancestor[2]:
+            body {
+              font-family: Arial, sans-serif;
+              color: rgb(51, 51, 51);
+            }"
+        `)
+
+        await page.close()
+    }, 60000)
+
     it('should return correct layout metrics via CDP', async () => {
         const browserContext = getBrowserContext()
         const serviceWorker = await getExtensionServiceWorker(browserContext)
