@@ -107,7 +107,7 @@ async function readStylesheet() {
   const editor = createEditor({ cdp })
   await editor.enable()
 
-  const stylesheets = editor.list({ pattern: /\.css/ })
+  const stylesheets = await editor.list({ pattern: /\.css/ })
   console.log('Stylesheets:', stylesheets)
 
   if (stylesheets.length > 0) {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.29
+
+### Patch Changes
+
+- **Fixed Editor/Debugger script listing after page load**: `listScripts()` and `list()` now work correctly even when called after page has loaded
+  - `enable()` now disables first then re-enables to force CDP to emit `scriptParsed` and `styleSheetAdded` events
+  - Added 100ms debounced wait for events to arrive before returning
+  - `listScripts()` and `list()` are now async and auto-call `enable()`
+
 ## 0.0.28
 
 ### Patch Changes

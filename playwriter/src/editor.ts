@@ -86,9 +86,33 @@ export class Editor {
     if (this.enabled) {
       return
     }
+    await this.cdp.send('Debugger.disable')
+    await this.cdp.send('CSS.disable')
+    this.scripts.clear()
+    this.stylesheets.clear()
+    this.sourceCache.clear()
+    const resourcesReady = new Promise<void>((resolve) => {
+      let timeout: ReturnType<typeof setTimeout>
+      const listener = () => {
+        clearTimeout(timeout)
+        timeout = setTimeout(() => {
+          this.cdp.off('Debugger.scriptParsed', listener)
+          this.cdp.off('CSS.styleSheetAdded', listener)
+          resolve()
+        }, 100)
+      }
+      this.cdp.on('Debugger.scriptParsed', listener)
+      this.cdp.on('CSS.styleSheetAdded', listener)
+      timeout = setTimeout(() => {
+        this.cdp.off('Debugger.scriptParsed', listener)
+        this.cdp.off('CSS.styleSheetAdded', listener)
+        resolve()
+      }, 100)
+    })
     await this.cdp.send('Debugger.enable')
     await this.cdp.send('DOM.enable')
     await this.cdp.send('CSS.enable')
+    await resourcesReady
     this.enabled = true
   }
 
@@ -108,6 +132,7 @@ export class Editor {
 
   /**
    * Lists available script and stylesheet URLs. Use pattern to filter by regex.
+   * Automatically enables the editor if not already enabled.
    *
    * @param options - Options
    * @param options.pattern - Optional regex to filter URLs
@@ -116,19 +141,20 @@ export class Editor {
    * @example
    * ```ts
    * // List all scripts and stylesheets
-   * const urls = editor.list()
+   * const urls = await editor.list()
    *
    * // List only JS files
-   * const jsFiles = editor.list({ pattern: /\.js/ })
+   * const jsFiles = await editor.list({ pattern: /\.js/ })
    *
    * // List only CSS files
-   * const cssFiles = editor.list({ pattern: /\.css/ })
+   * const cssFiles = await editor.list({ pattern: /\.css/ })
    *
    * // Search for specific scripts
-   * const appScripts = editor.list({ pattern: /app/ })
+   * const appScripts = await editor.list({ pattern: /app/ })
    * ```
    */
-  list({ pattern }: { pattern?: RegExp } = {}): string[] {
+  async list({ pattern }: { pattern?: RegExp } = {}): Promise<string[]> {
+    await this.enable()
     const urls = [...Array.from(this.scripts.keys()), ...Array.from(this.stylesheets.keys())]
 
     if (!pattern) {
@@ -319,7 +345,7 @@ export class Editor {
     await this.enable()
 
     const matches: SearchMatch[] = []
-    const urls = this.list({ pattern })
+    const urls = await this.list({ pattern })
 
     for (const url of urls) {
       let source: string

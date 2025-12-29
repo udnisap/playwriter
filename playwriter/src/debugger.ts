@@ -108,9 +108,28 @@ export class Debugger {
     if (this.debuggerEnabled) {
       return
     }
+    await this.cdp.send('Debugger.disable')
+    await this.cdp.send('Runtime.disable')
+    this.scripts.clear()
+    const scriptsReady = new Promise<void>((resolve) => {
+      let timeout: ReturnType<typeof setTimeout>
+      const listener = () => {
+        clearTimeout(timeout)
+        timeout = setTimeout(() => {
+          this.cdp.off('Debugger.scriptParsed', listener)
+          resolve()
+        }, 100)
+      }
+      this.cdp.on('Debugger.scriptParsed', listener)
+      timeout = setTimeout(() => {
+        this.cdp.off('Debugger.scriptParsed', listener)
+        resolve()
+      }, 100)
+    })
     await this.cdp.send('Debugger.enable')
     await this.cdp.send('Runtime.enable')
     await this.cdp.send('Runtime.runIfWaitingForDebugger')
+    await scriptsReady
     this.debuggerEnabled = true
   }
 
@@ -493,8 +512,7 @@ export class Debugger {
 
   /**
    * Lists available scripts where breakpoints can be set.
-   * Scripts are collected from Debugger.scriptParsed events after enable() is called.
-   * Reload the page after enabling to capture all scripts.
+   * Automatically enables the debugger if not already enabled.
    *
    * @param options - Options
    * @param options.search - Optional string to filter scripts by URL (case-insensitive)
@@ -503,15 +521,16 @@ export class Debugger {
    * @example
    * ```ts
    * // List all scripts
-   * const scripts = dbg.listScripts()
+   * const scripts = await dbg.listScripts()
    * // [{ scriptId: '1', url: 'https://example.com/app.js' }, ...]
    *
    * // Search for specific files
-   * const handlers = dbg.listScripts({ search: 'handler' })
+   * const handlers = await dbg.listScripts({ search: 'handler' })
    * // [{ scriptId: '5', url: 'https://example.com/handlers.js' }]
    * ```
    */
-  listScripts({ search }: { search?: string } = {}): ScriptInfo[] {
+  async listScripts({ search }: { search?: string } = {}): Promise<ScriptInfo[]> {
+    await this.enable()
     const scripts = Array.from(this.scripts.values())
     const filtered = search
       ? scripts.filter((s) => s.url.toLowerCase().includes(search.toLowerCase()))

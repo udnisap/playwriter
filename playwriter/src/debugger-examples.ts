@@ -6,7 +6,7 @@ async function listScriptsAndSetBreakpoint() {
   const dbg = createDebugger({ cdp })
   await dbg.enable()
 
-  const scripts = dbg.listScripts({ search: 'app' })
+  const scripts = await dbg.listScripts({ search: 'app' })
   console.log(scripts)
 
   if (scripts.length > 0) {

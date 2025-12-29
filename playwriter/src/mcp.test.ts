@@ -2094,19 +2094,12 @@ describe('CDP Session Tests', () => {
         const cdpSession = await getCDPSessionForPage({ page: cdpPage!, wsUrl })
         const dbg = new Debugger({ cdp: cdpSession })
 
-        await dbg.enable()
-
-        for (let i = 0; i < 20; i++) {
-            if (dbg.listScripts().length > 0) break
-            await new Promise(r => setTimeout(r, 100))
-        }
-
-        const scripts = dbg.listScripts()
+        const scripts = await dbg.listScripts()
         expect(scripts.length).toBeGreaterThan(0)
         expect(scripts[0]).toHaveProperty('scriptId')
         expect(scripts[0]).toHaveProperty('url')
 
-        const dataScripts = dbg.listScripts({ search: 'data:' })
+        const dataScripts = await dbg.listScripts({ search: 'data:' })
         expect(dataScripts.length).toBeGreaterThan(0)
 
         cdpSession.close()
@@ -2698,8 +2691,7 @@ describe('CDP Session Tests', () => {
             `,
         })
         await new Promise(r => setTimeout(r, 100))
-
-        const scripts = editor.list()
+        const scripts = await editor.list()
         expect(scripts.length).toBeGreaterThan(0)
 
         const matches = await editor.grep({ regex: /greetUser/ })
@@ -2766,8 +2758,7 @@ describe('CDP Session Tests', () => {
             `,
         })
         await new Promise(r => setTimeout(r, 100))
-
-        const stylesheets = editor.list({ pattern: /inline-css:/ })
+        const stylesheets = await editor.list({ pattern: /inline-css:/ })
         expect(stylesheets.length).toBeGreaterThan(0)
 
         const cssMatches = await editor.grep({ regex: /editor-test-element/, pattern: /inline-css:/ })
