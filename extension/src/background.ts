@@ -998,6 +998,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         void connectTab(tabId)
       }
     } else if (tabs.has(tabId)) {
+      const tabInfo = tabs.get(tabId)
+      if (tabInfo?.state !== 'connected') {
+        logger.debug('Tab removed from group while not connected, ignoring:', tabId)
+        return
+      }
       logger.debug('Tab manually removed from playwriter group:', tabId)
       void disconnectTab(tabId)
     }
