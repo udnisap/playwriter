@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.31
+
+### Patch Changes
+
+- **Added `styles-api` resource**: New MCP resource (`playwriter://styles-api`) with types and examples for `getStylesForLocator` CSS inspection API
+- **Reduced prompt context**: Simplified prompt.md to reference resources (`playwriter://debugger-api`, `playwriter://editor-api`, `playwriter://styles-api`) instead of inline documentation
+
 ## 0.0.30
 
 ### Patch Changes
