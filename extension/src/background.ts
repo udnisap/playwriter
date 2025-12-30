@@ -950,7 +950,7 @@ resetDebugger()
 
 chrome.contextMenus.create({
   id: 'playwriter-pin-element',
-  title: 'Pin to Playwriter',
+  title: 'Copy Playwriter Element Reference',
   contexts: ['all'],
   visible: false,
 })
