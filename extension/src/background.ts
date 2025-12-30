@@ -368,16 +368,13 @@ async function attachTab(tabId: number): Promise<Protocol.Target.TargetInfo> {
 
   await chrome.debugger.sendCommand(debuggee, 'Page.enable')
 
-  await chrome.debugger.sendCommand(debuggee, 'Runtime.evaluate', {
-    expression: `
-      if (!window.__playwriter_contextmenu_listener) {
-        window.__playwriter_contextmenu_listener = true;
-        document.addEventListener('contextmenu', (e) => {
-          window.__playwriter_lastRightClicked = e.target;
-        }, true);
-      }
-    `,
-  })
+  const contextMenuScript = `
+    document.addEventListener('contextmenu', (e) => {
+      window.__playwriter_lastRightClicked = e.target;
+    }, true);
+  `
+  await chrome.debugger.sendCommand(debuggee, 'Page.addScriptToEvaluateOnNewDocument', { source: contextMenuScript })
+  await chrome.debugger.sendCommand(debuggee, 'Runtime.evaluate', { expression: contextMenuScript })
 
   const result = (await chrome.debugger.sendCommand(
     debuggee,
