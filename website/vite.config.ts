@@ -39,9 +39,9 @@ export default defineConfig({
     // reactRouterServerPlugin({ port: process.env.PORT || '8044' }),
     tailwindcss(),
   ],
-  build: {
-    commonjsOptions: {
-      transformMixedEsModules: true,
-    },
-  },
+  // build: {
+  //   commonjsOptions: {
+  //     transformMixedEsModules: true,
+  //   },
+  // },
 });
