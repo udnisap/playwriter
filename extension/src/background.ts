@@ -94,6 +94,18 @@ const logger = {
   },
 }
 
+self.addEventListener('error', (event) => {
+  const error = event.error
+  const stack = error?.stack || `${event.message} at ${event.filename}:${event.lineno}:${event.colno}`
+  logger.error('Uncaught error:', stack)
+})
+
+self.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason
+  const stack = reason?.stack || String(reason)
+  logger.error('Unhandled promise rejection:', stack)
+})
+
 function sendMessage(message: any): void {
   if (ws?.readyState === WebSocket.OPEN) {
     try {
@@ -945,6 +957,7 @@ async function onActionClicked(tab: chrome.tabs.Tab): Promise<void> {
 
 resetDebugger()
 
+chrome.contextMenus.remove('playwriter-pin-element').catch(() => {})
 chrome.contextMenus.create({
   id: 'playwriter-pin-element',
   title: 'Copy Playwriter Element Reference',
