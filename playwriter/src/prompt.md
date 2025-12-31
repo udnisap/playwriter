@@ -95,9 +95,9 @@ you have access to some functions in addition to playwright methods:
     - `page`: the page object to create the session for
     - Returns: `{ send(method, params?), on(event, callback), off(event, callback) }`
     - Example: `const cdp = await getCDPSession({ page }); const metrics = await cdp.send('Page.getLayoutMetrics');`
-- `createDebugger({ cdp })`: creates a Debugger instance for setting breakpoints, stepping, and inspecting variables. Read the `https://playwriter.dev/resources/debugger-api.md` resource for full API docs and examples.
-- `createEditor({ cdp })`: creates an Editor instance for viewing and live-editing page scripts and CSS stylesheets. Read the `https://playwriter.dev/resources/editor-api.md` resource for full API docs and examples.
-- `getStylesForLocator({ locator })`: gets the CSS styles applied to an element, similar to browser DevTools "Styles" panel. Read the `https://playwriter.dev/resources/styles-api.md` resource for full API docs and examples.
+- `createDebugger({ cdp })`: creates a Debugger instance for setting breakpoints, stepping, and inspecting variables. ALWAYS read `https://playwriter.dev/resources/debugger-api.md` before using.
+- `createEditor({ cdp })`: creates an Editor instance for viewing and live-editing page scripts and CSS stylesheets. ALWAYS read `https://playwriter.dev/resources/editor-api.md` before using
+- `getStylesForLocator({ locator })`: gets the CSS styles applied to an element, similar to browser DevTools "Styles" panel. ALWAYS read `https://playwriter.dev/resources/styles-api.md` before using.
 - `getReactSource({ locator })`: gets the React component source location (file, line, column) for an element.
     - `locator`: a Playwright Locator or ElementHandle for the element to inspect
     - Returns: `{ fileName, lineNumber, columnNumber, componentName }` or `null` if not found
