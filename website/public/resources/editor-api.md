@@ -5,7 +5,7 @@ The Editor class provides a Claude Code-like interface for viewing and editing w
 ## Types
 
 ```ts
-import type { CDPSession } from './cdp-session.js';
+import type { ICDPSession } from './cdp-session.js';
 export interface ReadResult {
     content: string;
     totalLines: number;
@@ -55,7 +55,7 @@ export declare class Editor {
     private stylesheets;
     private sourceCache;
     constructor({ cdp }: {
-        cdp: CDPSession;
+        cdp: ICDPSession;
     });
     private setupEventListeners;
     /**

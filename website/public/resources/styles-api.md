@@ -5,7 +5,7 @@ The getStylesForLocator function inspects CSS styles applied to an element, simi
 ## Types
 
 ```ts
-import type { CDPSession } from './cdp-session.js';
+import type { ICDPSession } from './cdp-session.js';
 import type { Locator } from 'playwright-core';
 export interface StyleSource {
     url: string;
@@ -25,9 +25,9 @@ export interface StylesResult {
     inlineStyle: StyleDeclarations | null;
     rules: StyleRule[];
 }
-export declare function getStylesForLocator({ locator, cdp, includeUserAgentStyles, }: {
+export declare function getStylesForLocator({ locator, cdp: cdpSession, includeUserAgentStyles, }: {
     locator: Locator;
-    cdp: CDPSession;
+    cdp: ICDPSession;
     includeUserAgentStyles?: boolean;
 }): Promise<StylesResult>;
 export declare function formatStylesAsText(styles: StylesResult): string;

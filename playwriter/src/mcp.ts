@@ -189,6 +189,15 @@ async function sendLogToRelayServer(level: string, ...args: any[]) {
   }
 }
 
+/**
+ * Log to both console.error (for early startup) and relay server log file.
+ * Fire-and-forget to avoid blocking.
+ */
+function mcpLog(...args: any[]) {
+  console.error(...args)
+  sendLogToRelayServer('log', ...args)
+}
+
 async function getServerVersion(port: number): Promise<string | null> {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/version`, {
@@ -246,10 +255,10 @@ async function ensureRelayServer(): Promise<void> {
   }
 
   if (serverVersion !== null) {
-    console.error(`CDP relay server version mismatch (server: ${serverVersion}, mcp: ${VERSION}), restarting...`)
+    mcpLog(`CDP relay server version mismatch (server: ${serverVersion}, mcp: ${VERSION}), restarting...`)
     await killRelayServer(RELAY_PORT)
   } else {
-    console.error('CDP relay server not running, starting it...')
+    mcpLog('CDP relay server not running, starting it...')
   }
 
   const scriptPath = require.resolve('../dist/start-relay-server.js')
@@ -265,7 +274,7 @@ async function ensureRelayServer(): Promise<void> {
     await sleep(500)
     const newVersion = await getServerVersion(RELAY_PORT)
     if (newVersion === VERSION) {
-      console.error('CDP relay server started successfully, waiting for extension to connect...')
+      mcpLog('CDP relay server started successfully, waiting for extension to connect...')
       await sleep(1000)
       return
     }
@@ -370,7 +379,7 @@ function setupPageConsoleListener(page: Page) {
         pageLogs.shift()
       }
     } catch (e) {
-      console.error('[MCP] Failed to get console message text:', e)
+      mcpLog('[MCP] Failed to get console message text:', e)
       return
     }
   })
@@ -402,7 +411,7 @@ async function resetConnection(): Promise<{ browser: Browser; page: Page; contex
     try {
       await state.browser.close()
     } catch (e) {
-      console.error('Error closing browser:', e)
+      mcpLog('Error closing browser:', e)
     }
   }
 
@@ -547,7 +556,7 @@ server.tool(
       const page = await getCurrentPage(timeout)
       const context = state.context || page.context()
 
-      console.error('Executing code:', code)
+      mcpLog('Executing code:', code)
 
       const customConsole = {
         log: (...args: any[]) => {
@@ -813,14 +822,15 @@ server.tool(
       }
     } catch (error: any) {
       const errorStack = error.stack || error.message
+      const isTimeoutError = error instanceof CodeExecutionTimeoutError || error.name === 'TimeoutError'
+
+      // Always log to stderr, but only send non-timeout errors to relay server
       console.error('Error in execute tool:', errorStack)
+      if (!isTimeoutError) {
+        sendLogToRelayServer('error', 'Error in execute tool:', errorStack)
+      }
 
       const logsText = formatConsoleLogs(consoleLogs, 'Console output (before error)')
-
-      const isTimeoutError = error instanceof CodeExecutionTimeoutError || error.name === 'TimeoutError'
-      if (!isTimeoutError) {
-        sendLogToRelayServer('error', '[MCP] Error:', errorStack)
-      }
 
       const resetHint = isTimeoutError
         ? ''
@@ -908,7 +918,7 @@ export async function startMcp(options: { host?: string; token?: string } = {}) 
   if (!remote) {
     await ensureRelayServer()
   } else {
-    console.error(`Using remote CDP relay server: ${remote.host}:${remote.port}`)
+    mcpLog(`Using remote CDP relay server: ${remote.host}:${remote.port}`)
     await checkRemoteServer(remote)
   }
   const transport = new StdioServerTransport()

@@ -3,7 +3,7 @@
 ## Types
 
 ```ts
-import type { CDPSession } from './cdp-session.js';
+import type { ICDPSession } from './cdp-session.js';
 export interface BreakpointInfo {
     id: string;
     file: string;
@@ -57,7 +57,8 @@ export declare class Debugger {
      * Creates a new Debugger instance.
      *
      * @param options - Configuration options
-     * @param options.cdp - A CDPSession instance for sending CDP commands
+     * @param options.cdp - A CDPSession instance for sending CDP commands (works with both
+     *                      our CDPSession and Playwright's CDPSession)
      *
      * @example
      * ```ts
@@ -66,7 +67,7 @@ export declare class Debugger {
      * ```
      */
     constructor({ cdp }: {
-        cdp: CDPSession;
+        cdp: ICDPSession;
     });
     private setupEventListeners;
     /**
