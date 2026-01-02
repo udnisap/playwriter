@@ -12,12 +12,289 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-let ws: WebSocket | null = null
 let childSessions: Map<string, number> = new Map()
 let nextSessionId = 1
 let playwriterGroupId: number | null = null
 let tabGroupQueue: Promise<void> = Promise.resolve()
-let replacedRetryInterval: ReturnType<typeof setInterval> | null = null
+
+class ConnectionManager {
+  ws: WebSocket | null = null
+  private connectionPromise: Promise<void> | null = null
+
+  async ensureConnection(): Promise<void> {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      return
+    }
+
+    if (store.getState().connectionState === 'extension-replaced') {
+      throw new Error('Connection replaced by another extension')
+    }
+
+    // Reuse in-progress connection attempt - prevents races between user clicks and maintain loop
+    if (this.connectionPromise) {
+      return this.connectionPromise
+    }
+
+    this.connectionPromise = this.connect()
+    try {
+      await this.connectionPromise
+    } finally {
+      this.connectionPromise = null
+    }
+  }
+
+  private async connect(): Promise<void> {
+    logger.debug(`Waiting for server at http://localhost:${RELAY_PORT}...`)
+
+    // Retry for up to 30 seconds with 1s intervals, then give up (maintain loop will retry later)
+    const maxAttempts = 30
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        await fetch(`http://localhost:${RELAY_PORT}`, { method: 'HEAD', signal: AbortSignal.timeout(2000) })
+        logger.debug('Server is available')
+        break
+      } catch {
+        if (attempt === maxAttempts - 1) {
+          throw new Error('Server not available')
+        }
+        if (attempt % 5 === 0) {
+          logger.debug(`Server not available, retrying... (attempt ${attempt + 1}/${maxAttempts})`)
+        }
+        await sleep(1000)
+      }
+    }
+
+    logger.debug('Creating WebSocket connection to:', RELAY_URL)
+    const socket = new WebSocket(RELAY_URL)
+
+    await new Promise<void>((resolve, reject) => {
+      let timeoutFired = false
+      const timeout = setTimeout(() => {
+        timeoutFired = true
+        logger.debug('WebSocket connection TIMEOUT after 5 seconds')
+        reject(new Error('Connection timeout'))
+      }, 5000)
+
+      socket.onopen = () => {
+        if (timeoutFired) {
+          return
+        }
+        logger.debug('WebSocket connected')
+        clearTimeout(timeout)
+        resolve()
+      }
+
+      socket.onerror = (error) => {
+        logger.debug('WebSocket error during connection:', error)
+        if (!timeoutFired) {
+          clearTimeout(timeout)
+          reject(new Error('WebSocket connection failed'))
+        }
+      }
+
+      socket.onclose = (event) => {
+        logger.debug('WebSocket closed during connection:', { code: event.code, reason: event.reason })
+        if (!timeoutFired) {
+          clearTimeout(timeout)
+          reject(new Error(`WebSocket closed: ${event.reason || event.code}`))
+        }
+      }
+    })
+
+    this.ws = socket
+
+    this.ws.onmessage = async (event: MessageEvent) => {
+      let message: any
+      try {
+        message = JSON.parse(event.data)
+      } catch (error: any) {
+        logger.debug('Error parsing message:', error)
+        sendMessage({ error: { code: -32700, message: `Error parsing message: ${error.message}` } })
+        return
+      }
+
+      // Handle ping from server - respond with pong to keep service worker alive
+      if (message.method === 'ping') {
+        sendMessage({ method: 'pong' })
+        return
+      }
+
+      // Handle createInitialTab - create a new tab when Playwright connects and no tabs exist
+      // We use skipAttachedEvent: true because the relay's Target.setAutoAttach handler will send
+      // Target.attachedToTarget for all targets in connectedTargets. If we also sent it here,
+      // Playwright would receive a duplicate.
+      //
+      // This differs from the normal flow (user clicks extension icon) where:
+      // 1. Extension attaches and sends Target.attachedToTarget to existing Playwright clients
+      // 2. New Playwright clients that connect later get targets via Target.setAutoAttach
+      //
+      // But with createInitialTab, the SAME client that triggered the create is waiting for
+      // Target.setAutoAttach - so we'd send the event twice to the same client.
+      if (message.method === 'createInitialTab') {
+        try {
+          logger.debug('Creating initial tab for Playwright client')
+          const tab = await chrome.tabs.create({ url: 'about:blank', active: false })
+          if (tab.id) {
+            const { targetInfo, sessionId } = await attachTab(tab.id, { skipAttachedEvent: true })
+            logger.debug('Initial tab created and connected:', tab.id, 'sessionId:', sessionId)
+            sendMessage({
+              id: message.id,
+              result: {
+                success: true,
+                tabId: tab.id,
+                sessionId,
+                targetInfo,
+              },
+            })
+          } else {
+            throw new Error('Failed to create tab - no tab ID returned')
+          }
+        } catch (error: any) {
+          logger.debug('Failed to create initial tab:', error)
+          sendMessage({ id: message.id, error: error.message })
+        }
+        return
+      }
+
+      const response: ExtensionResponseMessage = { id: message.id }
+      try {
+        response.result = await handleCommand(message as ExtensionCommandMessage)
+      } catch (error: any) {
+        logger.debug('Error handling command:', error)
+        response.error = error.message
+      }
+      logger.debug('Sending response:', response)
+      sendMessage(response)
+    }
+
+    this.ws.onclose = (event: CloseEvent) => {
+      this.handleClose(event.reason, event.code)
+    }
+
+    this.ws.onerror = (event: Event) => {
+      logger.debug('WebSocket error:', event)
+    }
+
+    chrome.debugger.onEvent.addListener(onDebuggerEvent)
+    chrome.debugger.onDetach.addListener(onDebuggerDetach)
+
+    logger.debug('Connection established')
+  }
+
+  private handleClose(reason: string, code: number): void {
+    // Log memory at disconnect time to help diagnose memory-related terminations
+    try {
+      // @ts-ignore - performance.memory is Chrome-specific
+      const mem = performance.memory
+      if (mem) {
+        const formatMB = (b: number) => (b / 1024 / 1024).toFixed(2) + 'MB'
+        logger.warn(`DISCONNECT MEMORY: used=${formatMB(mem.usedJSHeapSize)} total=${formatMB(mem.totalJSHeapSize)} limit=${formatMB(mem.jsHeapSizeLimit)}`)
+      }
+    } catch {}
+    logger.warn(`DISCONNECT: WS closed code=${code} reason=${reason || 'none'} stack=${getCallStack()}`)
+
+    chrome.debugger.onEvent.removeListener(onDebuggerEvent)
+    chrome.debugger.onDetach.removeListener(onDebuggerDetach)
+
+    const { tabs } = store.getState()
+
+    for (const [tabId] of tabs) {
+      chrome.debugger.detach({ tabId }).catch((err) => {
+        logger.debug('Error detaching from tab:', tabId, err.message)
+      })
+    }
+
+    childSessions.clear()
+    this.ws = null
+
+    if (reason === 'Extension Replaced' || code === 4001) {
+      logger.debug('Connection replaced by another extension instance')
+      store.setState({
+        tabs: new Map(),
+        connectionState: 'extension-replaced',
+        errorText: 'Disconnected: Replaced by another extension',
+      })
+      return
+    }
+
+    // For normal disconnects, set tabs to 'connecting' state and let maintain loop handle reconnect
+    store.setState((state) => {
+      const newTabs = new Map(state.tabs)
+      for (const [tabId, tab] of newTabs) {
+        newTabs.set(tabId, { ...tab, state: 'connecting' })
+      }
+      return { tabs: newTabs, connectionState: 'idle', errorText: undefined }
+    })
+  }
+
+  async maintainLoop(): Promise<void> {
+    while (true) {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        await sleep(1000)
+        continue
+      }
+
+      // When replaced by another extension, poll until slot is free
+      if (store.getState().connectionState === 'extension-replaced') {
+        try {
+          const response = await fetch(`http://localhost:${RELAY_PORT}/extension/status`, { method: 'GET', signal: AbortSignal.timeout(2000) })
+          const data = await response.json()
+          if (!data.connected) {
+            store.setState({ connectionState: 'idle', errorText: undefined })
+            logger.debug('Extension slot is free, cleared error state')
+          } else {
+            logger.debug('Extension slot still taken, will retry...')
+          }
+        } catch {
+          logger.debug('Server not available, will retry...')
+        }
+        await sleep(3000)
+        continue
+      }
+
+      // Try to connect silently in background - don't show 'connecting' badge
+      // Individual tab states will show 'connecting' when user explicitly clicks
+      try {
+        await this.ensureConnection()
+        store.setState({ connectionState: 'connected' })
+
+        // Re-attach any tabs that were in 'connecting' state (from a previous disconnect)
+        const tabsToReattach = Array.from(store.getState().tabs.entries())
+          .filter(([_, tab]) => tab.state === 'connecting')
+          .map(([tabId]) => tabId)
+
+        for (const tabId of tabsToReattach) {
+          // Re-check state before attaching - might have been attached by user click
+          const currentTab = store.getState().tabs.get(tabId)
+          if (!currentTab || currentTab.state !== 'connecting') {
+            logger.debug('Skipping reattach, tab state changed:', tabId, currentTab?.state)
+            continue
+          }
+
+          try {
+            await chrome.tabs.get(tabId)
+            await attachTab(tabId)
+            logger.debug('Successfully re-attached tab:', tabId)
+          } catch (error: any) {
+            logger.debug('Failed to re-attach tab:', tabId, error.message)
+            store.setState((state) => {
+              const newTabs = new Map(state.tabs)
+              newTabs.delete(tabId)
+              return { tabs: newTabs }
+            })
+          }
+        }
+      } catch (error: any) {
+        logger.debug('Connection attempt failed:', error.message)
+        store.setState({ connectionState: 'idle' })
+      }
+
+      await sleep(3000)
+    }
+  }
+}
+
+const connectionManager = new ConnectionManager()
 
 const store = createStore<ExtensionState>(() => ({
   tabs: new Map(),
@@ -111,10 +388,15 @@ self.addEventListener('unhandledrejection', (event) => {
   logger.error('Unhandled promise rejection:', stack)
 })
 
+let messageCount = 0
 function sendMessage(message: any): void {
-  if (ws?.readyState === WebSocket.OPEN) {
+  if (connectionManager.ws?.readyState === WebSocket.OPEN) {
     try {
-      ws.send(JSON.stringify(message))
+      connectionManager.ws.send(JSON.stringify(message))
+      // Check memory periodically (every ~100 messages)
+      if (++messageCount % 100 === 0) {
+        checkMemory()
+      }
     } catch (error: any) {
       console.debug('ERROR sending message:', error, 'message type:', message.method || 'response')
     }
@@ -385,57 +667,74 @@ type AttachTabResult = {
 
 async function attachTab(tabId: number, { skipAttachedEvent = false }: { skipAttachedEvent?: boolean } = {}): Promise<AttachTabResult> {
   const debuggee = { tabId }
+  let debuggerAttached = false
 
-  logger.debug('Attaching debugger to tab:', tabId)
-  await chrome.debugger.attach(debuggee, '1.3')
-  logger.debug('Debugger attached successfully to tab:', tabId)
+  try {
+    logger.debug('Attaching debugger to tab:', tabId)
+    await chrome.debugger.attach(debuggee, '1.3')
+    debuggerAttached = true
+    logger.debug('Debugger attached successfully to tab:', tabId)
 
-  await chrome.debugger.sendCommand(debuggee, 'Page.enable')
+    await chrome.debugger.sendCommand(debuggee, 'Page.enable')
 
-  const contextMenuScript = `
-    document.addEventListener('contextmenu', (e) => {
-      window.__playwriter_lastRightClicked = e.target;
-    }, true);
-  `
-  await chrome.debugger.sendCommand(debuggee, 'Page.addScriptToEvaluateOnNewDocument', { source: contextMenuScript })
-  await chrome.debugger.sendCommand(debuggee, 'Runtime.evaluate', { expression: contextMenuScript })
+    const contextMenuScript = `
+      document.addEventListener('contextmenu', (e) => {
+        window.__playwriter_lastRightClicked = e.target;
+      }, true);
+    `
+    await chrome.debugger.sendCommand(debuggee, 'Page.addScriptToEvaluateOnNewDocument', { source: contextMenuScript })
+    await chrome.debugger.sendCommand(debuggee, 'Runtime.evaluate', { expression: contextMenuScript })
 
-  const result = (await chrome.debugger.sendCommand(
-    debuggee,
-    'Target.getTargetInfo',
-  )) as Protocol.Target.GetTargetInfoResponse
+    const result = (await chrome.debugger.sendCommand(
+      debuggee,
+      'Target.getTargetInfo',
+    )) as Protocol.Target.GetTargetInfoResponse
 
-  const targetInfo = result.targetInfo
-  const attachOrder = nextSessionId
-  const sessionId = `pw-tab-${nextSessionId++}`
+    const targetInfo = result.targetInfo
 
-  store.setState((state) => {
-    const newTabs = new Map(state.tabs)
-    newTabs.set(tabId, {
-      sessionId,
-      targetId: targetInfo.targetId,
-      state: 'connected',
-      attachOrder,
+    // Log error if URL is empty - this causes Playwright to create broken pages
+    if (!targetInfo.url || targetInfo.url === '' || targetInfo.url === ':') {
+      logger.error('WARNING: Target.attachedToTarget will be sent with empty URL! tabId:', tabId, 'targetInfo:', JSON.stringify(targetInfo))
+    }
+
+    const attachOrder = nextSessionId
+    const sessionId = `pw-tab-${nextSessionId++}`
+
+    store.setState((state) => {
+      const newTabs = new Map(state.tabs)
+      newTabs.set(tabId, {
+        sessionId,
+        targetId: targetInfo.targetId,
+        state: 'connected',
+        attachOrder,
+      })
+      return { tabs: newTabs, connectionState: 'connected', errorText: undefined }
     })
-    return { tabs: newTabs, connectionState: 'connected', errorText: undefined }
-  })
 
-  if (!skipAttachedEvent) {
-    sendMessage({
-      method: 'forwardCDPEvent',
-      params: {
-        method: 'Target.attachedToTarget',
+    if (!skipAttachedEvent) {
+      sendMessage({
+        method: 'forwardCDPEvent',
         params: {
-          sessionId,
-          targetInfo: { ...targetInfo, attached: true },
-          waitingForDebugger: false,
+          method: 'Target.attachedToTarget',
+          params: {
+            sessionId,
+            targetInfo: { ...targetInfo, attached: true },
+            waitingForDebugger: false,
+          },
         },
-      },
-    })
-  }
+      })
+    }
 
-  logger.debug('Tab attached successfully:', tabId, 'sessionId:', sessionId, 'targetId:', targetInfo.targetId, 'skipAttachedEvent:', skipAttachedEvent)
-  return { targetInfo, sessionId }
+    logger.debug('Tab attached successfully:', tabId, 'sessionId:', sessionId, 'targetId:', targetInfo.targetId, 'url:', targetInfo.url, 'skipAttachedEvent:', skipAttachedEvent)
+    return { targetInfo, sessionId }
+  } catch (error) {
+    // Clean up debugger if we attached but failed later
+    if (debuggerAttached) {
+      logger.debug('Cleaning up debugger after partial attach failure:', tabId)
+      chrome.debugger.detach(debuggee).catch(() => {})
+    }
+    throw error
+  }
 }
 
 function detachTab(tabId: number, shouldDetachDebugger: boolean): void {
@@ -447,13 +746,17 @@ function detachTab(tabId: number, shouldDetachDebugger: boolean): void {
 
   logger.warn(`DISCONNECT: detachTab tabId=${tabId} shouldDetach=${shouldDetachDebugger} stack=${getCallStack()}`)
 
-  sendMessage({
-    method: 'forwardCDPEvent',
-    params: {
-      method: 'Target.detachedFromTarget',
-      params: { sessionId: tab.sessionId, targetId: tab.targetId },
-    },
-  })
+  // Only send detach event if tab was fully attached (has sessionId/targetId)
+  // Tabs in 'connecting' state may not have these yet
+  if (tab.sessionId && tab.targetId) {
+    sendMessage({
+      method: 'forwardCDPEvent',
+      params: {
+        method: 'Target.detachedFromTarget',
+        params: { sessionId: tab.sessionId, targetId: tab.targetId },
+      },
+    })
+  }
 
   store.setState((state) => {
     const newTabs = new Map(state.tabs)
@@ -475,290 +778,7 @@ function detachTab(tabId: number, shouldDetachDebugger: boolean): void {
   }
 }
 
-function closeConnection(reason: string): void {
-  logger.warn(`DISCONNECT: closeConnection reason=${reason} stack=${getCallStack()}`)
 
-  chrome.debugger.onEvent.removeListener(onDebuggerEvent)
-  chrome.debugger.onDetach.removeListener(onDebuggerDetach)
-
-  for (const [tabId] of store.getState().tabs) {
-    chrome.debugger.detach({ tabId }).catch((err) => {
-      logger.debug('Error detaching from tab:', tabId, err.message)
-    })
-  }
-
-  store.setState({ tabs: new Map(), connectionState: 'idle', errorText: undefined })
-  childSessions.clear()
-
-  if (ws) {
-    ws.close(1000, reason)
-    ws = null
-  }
-}
-
-function startReplacedRetryLoop(): void {
-  if (replacedRetryInterval) return
-  logger.debug('Starting replaced retry loop (every 3 seconds)')
-  replacedRetryInterval = setInterval(async () => {
-    if (ws?.readyState === WebSocket.OPEN || store.getState().connectionState !== 'extension-replaced') {
-      clearInterval(replacedRetryInterval!)
-      replacedRetryInterval = null
-      logger.debug('Stopped replaced retry loop')
-      return
-    }
-    try {
-      const response = await fetch(`http://localhost:${RELAY_PORT}/extension/status`)
-      const data = await response.json()
-      if (!data.connected) {
-        store.setState({ connectionState: 'idle', errorText: undefined })
-        logger.debug('Extension slot is free, cleared error state')
-      } else {
-        logger.debug('Extension slot still taken, will retry...')
-      }
-    } catch {
-      logger.debug('Server not available, will retry...')
-    }
-  }, 3000)
-}
-
-function handleConnectionClose(reason: string, code: number): void {
-  logger.warn(`DISCONNECT: WS closed code=${code} reason=${reason || 'none'} stack=${getCallStack()}`)
-
-  chrome.debugger.onEvent.removeListener(onDebuggerEvent)
-  chrome.debugger.onDetach.removeListener(onDebuggerDetach)
-
-  const { tabs } = store.getState()
-
-  for (const [tabId] of tabs) {
-    chrome.debugger.detach({ tabId }).catch((err) => {
-      logger.debug('Error detaching from tab:', tabId, err.message)
-    })
-  }
-
-  childSessions.clear()
-  ws = null
-
-  if (reason === 'Extension Replaced' || code === 4001) {
-    logger.debug('Connection replaced by another extension instance')
-    store.setState({
-      tabs: new Map(),
-      connectionState: 'extension-replaced',
-      errorText: 'Disconnected: Replaced by another extension',
-    })
-    startReplacedRetryLoop()
-    return
-  }
-
-  // For normal disconnects, set tabs to 'connecting' state and let maintainConnection handle reconnect
-  store.setState((state) => {
-    const newTabs = new Map(state.tabs)
-    for (const [tabId, tab] of newTabs) {
-      newTabs.set(tabId, { ...tab, state: 'connecting' })
-    }
-    return { tabs: newTabs, connectionState: 'idle', errorText: undefined }
-  })
-}
-
-async function ensureConnection(): Promise<void> {
-  // If already connecting, wait for that connection to complete instead of creating a new one
-  // This prevents "Extension Replaced" errors when multiple callers race to connect
-  if (ws?.readyState === WebSocket.CONNECTING) {
-    logger.debug('Connection already in progress, waiting for it to complete')
-    const existingWs = ws
-    await new Promise<void>((resolve) => {
-      const checkInterval = setInterval(() => {
-        if (existingWs.readyState !== WebSocket.CONNECTING) {
-          clearInterval(checkInterval)
-          resolve()
-        }
-      }, 100)
-    })
-  }
-
-  if (ws?.readyState === WebSocket.OPEN) {
-    logger.debug('Connection already exists, reusing')
-    return
-  }
-
-  logger.debug(`Waiting for server at http://localhost:${RELAY_PORT}...`)
-
-  // Retry for up to 30 seconds, then give up (maintainConnection will retry later)
-  const maxAttempts = 30
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      await fetch(`http://localhost:${RELAY_PORT}`, { method: 'HEAD' })
-      logger.debug('Server is available')
-      break
-    } catch {
-      if (attempt === maxAttempts - 1) {
-        throw new Error('Server not available after 30 seconds')
-      }
-      logger.debug('Server not available, retrying in 1 second...')
-      await sleep(1000)
-    }
-  }
-
-  logger.debug('Creating WebSocket connection to:', RELAY_URL)
-  const socket = new WebSocket(RELAY_URL)
-
-  await new Promise<void>((resolve, reject) => {
-    let timeoutFired = false
-    const timeout = setTimeout(() => {
-      timeoutFired = true
-      logger.debug('WebSocket connection TIMEOUT after 5 seconds')
-      reject(new Error('Connection timeout'))
-    }, 5000)
-
-    socket.onopen = () => {
-      if (timeoutFired) return
-      logger.debug('WebSocket connected')
-      clearTimeout(timeout)
-      resolve()
-    }
-
-    socket.onerror = (error) => {
-      logger.debug('WebSocket error during connection:', error)
-      if (!timeoutFired) {
-        clearTimeout(timeout)
-        reject(new Error('WebSocket connection failed'))
-      }
-    }
-
-    socket.onclose = (event) => {
-      logger.debug('WebSocket closed during connection:', { code: event.code, reason: event.reason })
-      if (!timeoutFired) {
-        clearTimeout(timeout)
-        reject(new Error(`WebSocket closed: ${event.reason || event.code}`))
-      }
-    }
-  })
-
-  ws = socket
-
-  ws.onmessage = async (event: MessageEvent) => {
-    let message: any
-    try {
-      message = JSON.parse(event.data)
-    } catch (error: any) {
-      logger.debug('Error parsing message:', error)
-      sendMessage({ error: { code: -32700, message: `Error parsing message: ${error.message}` } })
-      return
-    }
-
-    // Handle ping from server - respond with pong to keep service worker alive
-    if (message.method === 'ping') {
-      sendMessage({ method: 'pong' })
-      return
-    }
-
-    // Handle createInitialTab - create a new tab when Playwright connects and no tabs exist
-    // We use skipAttachedEvent: true because the relay's Target.setAutoAttach handler will send
-    // Target.attachedToTarget for all targets in connectedTargets. If we also sent it here,
-    // Playwright would receive a duplicate.
-    //
-    // This differs from the normal flow (user clicks extension icon) where:
-    // 1. Extension attaches and sends Target.attachedToTarget to existing Playwright clients
-    // 2. New Playwright clients that connect later get targets via Target.setAutoAttach
-    //
-    // But with createInitialTab, the SAME client that triggered the create is waiting for
-    // Target.setAutoAttach - so we'd send the event twice to the same client.
-    if (message.method === 'createInitialTab') {
-      try {
-        logger.debug('Creating initial tab for Playwright client')
-        const tab = await chrome.tabs.create({ url: 'about:blank', active: false })
-        if (tab.id) {
-          const { targetInfo, sessionId } = await attachTab(tab.id, { skipAttachedEvent: true })
-          logger.debug('Initial tab created and connected:', tab.id, 'sessionId:', sessionId)
-          sendMessage({
-            id: message.id,
-            result: {
-              success: true,
-              tabId: tab.id,
-              sessionId,
-              targetInfo,
-            }
-          })
-        } else {
-          throw new Error('Failed to create tab - no tab ID returned')
-        }
-      } catch (error: any) {
-        logger.debug('Failed to create initial tab:', error)
-        sendMessage({ id: message.id, error: error.message })
-      }
-      return
-    }
-
-    const response: ExtensionResponseMessage = { id: message.id }
-    try {
-      response.result = await handleCommand(message as ExtensionCommandMessage)
-    } catch (error: any) {
-      logger.debug('Error handling command:', error)
-      response.error = error.message
-    }
-    logger.debug('Sending response:', response)
-    sendMessage(response)
-  }
-
-  ws.onclose = (event: CloseEvent) => {
-    handleConnectionClose(event.reason, event.code)
-  }
-
-  ws.onerror = (event: Event) => {
-    logger.debug('WebSocket error:', event)
-  }
-
-  chrome.debugger.onEvent.addListener(onDebuggerEvent)
-  chrome.debugger.onDetach.addListener(onDebuggerDetach)
-
-  logger.debug('Connection established')
-}
-
-async function maintainConnection(): Promise<void> {
-  while (true) {
-    if (ws?.readyState === WebSocket.OPEN) {
-      await sleep(1000)
-      continue
-    }
-
-    // Don't auto-reconnect if replaced by another extension
-    if (store.getState().connectionState === 'extension-replaced') {
-      await sleep(1000)
-      continue
-    }
-
-    // Try to connect silently in background - don't show 'connecting' badge
-    // Individual tab states will show 'connecting' when user explicitly clicks
-    try {
-      await ensureConnection()
-      store.setState({ connectionState: 'connected' })
-
-      // Re-attach any tabs that were in 'connecting' state (from a previous disconnect)
-      const tabsToReattach = Array.from(store.getState().tabs.entries())
-        .filter(([_, tab]) => tab.state === 'connecting')
-        .map(([tabId]) => tabId)
-
-      for (const tabId of tabsToReattach) {
-        try {
-          await chrome.tabs.get(tabId)
-          await attachTab(tabId)
-          logger.debug('Successfully re-attached tab:', tabId)
-        } catch (error: any) {
-          logger.debug('Failed to re-attach tab:', tabId, error.message)
-          store.setState((state) => {
-            const newTabs = new Map(state.tabs)
-            newTabs.delete(tabId)
-            return { tabs: newTabs }
-          })
-        }
-      }
-    } catch (error: any) {
-      logger.debug('Connection attempt failed:', error.message)
-      store.setState({ connectionState: 'idle' })
-    }
-
-    await sleep(5000)
-  }
-}
 
 async function connectTab(tabId: number): Promise<void> {
   try {
@@ -770,18 +790,32 @@ async function connectTab(tabId: number): Promise<void> {
       return { tabs: newTabs }
     })
 
-    await ensureConnection()
+    await connectionManager.ensureConnection()
     await attachTab(tabId)
 
     logger.debug(`Successfully connected to tab ${tabId}`)
   } catch (error: any) {
     logger.debug(`Failed to connect to tab ${tabId}:`, error)
 
-    store.setState((state) => {
-      const newTabs = new Map(state.tabs)
-      newTabs.set(tabId, { state: 'error', errorText: `Error: ${error.message}` })
-      return { tabs: newTabs }
-    })
+    // Distinguish between WS connection errors and tab-specific errors
+    // WS errors: keep in 'connecting' state, maintainLoop will retry when WS is available
+    // Tab errors: show 'error' state (e.g., restricted page, debugger attach failed)
+    const isWsError =
+      error.message === 'Server not available' ||
+      error.message === 'Connection timeout' ||
+      error.message === 'Connection replaced by another extension' ||
+      error.message.startsWith('WebSocket')
+
+    if (isWsError) {
+      logger.debug(`WS connection failed, keeping tab ${tabId} in connecting state for retry`)
+      // Tab stays in 'connecting' state - maintainLoop will retry when WS becomes available
+    } else {
+      store.setState((state) => {
+        const newTabs = new Map(state.tabs)
+        newTabs.set(tabId, { state: 'error', errorText: `Error: ${error.message}` })
+        return { tabs: newTabs }
+      })
+    }
   }
 }
 
@@ -990,11 +1024,11 @@ async function onActionClicked(tab: chrome.tabs.Tab): Promise<void> {
   const { tabs, connectionState } = store.getState()
   const tabInfo = tabs.get(tab.id)
 
-  // If in extension-replaced state, clear it to allow reconnection
+  // If in extension-replaced state, clear it and connect the clicked tab
   if (connectionState === 'extension-replaced') {
-    logger.debug('Clearing extension-replaced state, will retry connection')
+    logger.debug('Clearing extension-replaced state, connecting clicked tab')
     store.setState({ connectionState: 'idle', errorText: undefined })
-    // maintainConnection will pick up and retry
+    await connectTab(tab.id)
     return
   }
 
@@ -1017,7 +1051,7 @@ async function onActionClicked(tab: chrome.tabs.Tab): Promise<void> {
 }
 
 resetDebugger()
-maintainConnection()
+connectionManager.maintainLoop()
 
 chrome.contextMenus.remove('playwriter-pin-element').catch(() => {}).finally(() => {
   chrome.contextMenus.create({
@@ -1058,6 +1092,54 @@ store.subscribe((state, prevState) => {
 })
 
 logger.debug(`Using relay URL: ${RELAY_URL}`)
+
+// Memory monitoring - helps debug service worker termination issues
+let lastMemoryUsage = 0
+let lastMemoryCheck = Date.now()
+const MEMORY_WARNING_THRESHOLD = 50 * 1024 * 1024 // 50MB
+const MEMORY_CRITICAL_THRESHOLD = 100 * 1024 * 1024 // 100MB
+const MEMORY_GROWTH_THRESHOLD = 10 * 1024 * 1024 // 10MB growth per interval is suspicious
+
+function checkMemory(): void {
+  try {
+    // @ts-ignore - performance.memory is Chrome-specific and not in TS types
+    const memory = performance.memory
+    if (!memory) {
+      return
+    }
+
+    const used = memory.usedJSHeapSize
+    const total = memory.totalJSHeapSize
+    const limit = memory.jsHeapSizeLimit
+    const now = Date.now()
+    const timeDelta = now - lastMemoryCheck
+    const memoryDelta = used - lastMemoryUsage
+
+    const formatMB = (bytes: number) => (bytes / 1024 / 1024).toFixed(2) + 'MB'
+    const growthRate = timeDelta > 0 ? (memoryDelta / timeDelta) * 1000 : 0 // bytes per second
+
+    // Log if memory is high or growing rapidly
+    if (used > MEMORY_CRITICAL_THRESHOLD) {
+      logger.error(`MEMORY CRITICAL: used=${formatMB(used)} total=${formatMB(total)} limit=${formatMB(limit)} growth=${formatMB(memoryDelta)} rate=${formatMB(growthRate)}/s`)
+    } else if (used > MEMORY_WARNING_THRESHOLD) {
+      logger.warn(`MEMORY WARNING: used=${formatMB(used)} total=${formatMB(total)} limit=${formatMB(limit)} growth=${formatMB(memoryDelta)} rate=${formatMB(growthRate)}/s`)
+    } else if (memoryDelta > MEMORY_GROWTH_THRESHOLD && timeDelta < 60000) {
+      logger.warn(`MEMORY SPIKE: grew ${formatMB(memoryDelta)} in ${(timeDelta / 1000).toFixed(1)}s (used=${formatMB(used)})`)
+    }
+
+    lastMemoryUsage = used
+    lastMemoryCheck = now
+  } catch (e) {
+    // Silently ignore - performance.memory may not be available
+  }
+}
+
+// Check memory every 5 seconds
+setInterval(checkMemory, 5000)
+
+// Initial memory check
+checkMemory()
+
 chrome.tabs.onRemoved.addListener(onTabRemoved)
 chrome.tabs.onActivated.addListener(onTabActivated)
 chrome.action.onClicked.addListener(onActionClicked)
