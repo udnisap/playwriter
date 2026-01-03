@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.37
+
+### Patch Changes
+
+- Internal connection handling improvements
+
 ## 0.0.36
 
 ### Features

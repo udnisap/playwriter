@@ -386,7 +386,26 @@ export async function startPlayWriterCDPRelayServer({ port = 19988, host = '127.
     }
   })
 
+  // Validate Origin header for WebSocket connections to prevent cross-origin attacks.
+  // Browsers always send Origin header for WebSocket connections, but Node.js clients don't.
+  // We reject browser origins (except chrome-extension://) to prevent malicious websites
+  // from connecting to the local WebSocket server.
+  function isAllowedOrigin(origin: string | undefined): boolean {
+    if (!origin) {
+      return true // Node.js clients don't send Origin
+    }
+    if (origin.startsWith('chrome-extension://')) {
+      return true // Chrome extension is allowed
+    }
+    return false // Reject browser origins (http://, https://, etc.)
+  }
+
   app.get('/cdp/:clientId?', (c, next) => {
+    const origin = c.req.header('origin')
+    if (!isAllowedOrigin(origin)) {
+      logger?.log(chalk.red(`Rejecting /cdp WebSocket from origin: ${origin}`))
+      return c.text('Forbidden', 403)
+    }
     if (token) {
       const url = new URL(c.req.url, 'http://localhost')
       const providedToken = url.searchParams.get('token')
@@ -548,7 +567,14 @@ export async function startPlayWriterCDPRelayServer({ port = 19988, host = '127.
     }
   }))
 
-  app.get('/extension', upgradeWebSocket(() => {
+  app.get('/extension', (c, next) => {
+    const origin = c.req.header('origin')
+    if (!isAllowedOrigin(origin)) {
+      logger?.log(chalk.red(`Rejecting /extension WebSocket from origin: ${origin}`))
+      return c.text('Forbidden', 403)
+    }
+    return next()
+  }, upgradeWebSocket(() => {
     return {
       onOpen(_event, ws) {
         if (extensionWs) {
