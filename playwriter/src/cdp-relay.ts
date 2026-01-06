@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
+import { getConnInfo } from '@hono/node-server/conninfo'
 import { createNodeWebSocket } from '@hono/node-ws'
 import type { WSContext } from 'hono/ws'
 import type { Protocol } from './cdp-types.js'
@@ -395,23 +396,23 @@ export async function startPlayWriterCDPRelayServer({ port = 19988, host = '127.
     'elnnakgjclnapgflmidlpobefkdmapdm', // Dev extension (loaded unpacked)
   ]
 
-  function isAllowedOrigin(origin: string | undefined): boolean {
-    if (!origin) {
-      return true // Node.js clients don't send Origin
-    }
-    if (origin.startsWith('chrome-extension://')) {
-      const extensionId = origin.replace('chrome-extension://', '')
-      return ALLOWED_EXTENSION_IDS.includes(extensionId)
-    }
-    return false // Reject browser origins (http://, https://, etc.)
-  }
-
   app.get('/cdp/:clientId?', (c, next) => {
     const origin = c.req.header('origin')
-    if (!isAllowedOrigin(origin)) {
-      logger?.log(chalk.red(`Rejecting /cdp WebSocket from origin: ${origin}`))
-      return c.text('Forbidden', 403)
+    
+    // Validate Origin header if present (Node.js clients don't send it)
+    if (origin) {
+      if (origin.startsWith('chrome-extension://')) {
+        const extensionId = origin.replace('chrome-extension://', '')
+        if (!ALLOWED_EXTENSION_IDS.includes(extensionId)) {
+          logger?.log(chalk.red(`Rejecting /cdp WebSocket from unknown extension: ${extensionId}`))
+          return c.text('Forbidden', 403)
+        }
+      } else {
+        logger?.log(chalk.red(`Rejecting /cdp WebSocket from origin: ${origin}`))
+        return c.text('Forbidden', 403)
+      }
     }
+
     if (token) {
       const url = new URL(c.req.url, 'http://localhost')
       const providedToken = url.searchParams.get('token')
@@ -574,11 +575,33 @@ export async function startPlayWriterCDPRelayServer({ port = 19988, host = '127.
   }))
 
   app.get('/extension', (c, next) => {
+    // 1. Host Validation: The extension endpoint must ONLY be accessed from localhost.
+    // This prevents attackers on the network from hijacking the browser session
+    // even if the server is exposed via 0.0.0.0.
+    const info = getConnInfo(c)
+    const remoteAddress = info.remote.address
+    const isLocalhost = remoteAddress === '127.0.0.1' || remoteAddress === '::1'
+
+    if (!isLocalhost) {
+      logger?.log(chalk.red(`Rejecting /extension WebSocket from remote IP: ${remoteAddress}`))
+      return c.text('Forbidden - Extension must be local', 403)
+    }
+
+    // 2. Origin Validation: Prevent browser-based attacks (CSRF).
+    // Browsers cannot spoof the Origin header, so this ensures the connection
+    // is coming from our specific Chrome Extension, not a malicious website.
     const origin = c.req.header('origin')
-    if (!isAllowedOrigin(origin)) {
-      logger?.log(chalk.red(`Rejecting /extension WebSocket from origin: ${origin}`))
+    if (!origin || !origin.startsWith('chrome-extension://')) {
+      logger?.log(chalk.red(`Rejecting /extension WebSocket: origin must be chrome-extension://, got: ${origin || 'none'}`))
       return c.text('Forbidden', 403)
     }
+    
+    const extensionId = origin.replace('chrome-extension://', '')
+    if (!ALLOWED_EXTENSION_IDS.includes(extensionId)) {
+      logger?.log(chalk.red(`Rejecting /extension WebSocket from unknown extension: ${extensionId}`))
+      return c.text('Forbidden', 403)
+    }
+
     return next()
   }, upgradeWebSocket(() => {
     return {
