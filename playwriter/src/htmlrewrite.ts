@@ -89,9 +89,79 @@ export async function formatHtmlForPrompt(html: string) {
         }
     }
 
+    // Plugin to collapse 3+ consecutive empty elements of the same type
+    const collapseEmptyElementsPlugin = () => {
+        return (tree) => {
+            const isEmptyElement = (node) => {
+                if (typeof node === 'string') return false
+                if (!node.tag) return false
+                const hasAttrs = node.attrs && Object.keys(node.attrs).length > 0
+                const hasContent = node.content && node.content.some(c =>
+                    typeof c === 'string' ? c.trim().length > 0 : true
+                )
+                return !hasAttrs && !hasContent
+            }
+
+            const isWhitespaceOnly = (node) => {
+                return typeof node === 'string' && node.trim().length === 0
+            }
+
+            const collapseConsecutive = (content) => {
+                if (!content || !Array.isArray(content)) return content
+
+                const result: typeof content = []
+                let i = 0
+                while (i < content.length) {
+                    const current = content[i]
+
+                    // Process children first (recursive)
+                    if (typeof current !== 'string' && current.content) {
+                        current.content = collapseConsecutive(current.content)
+                    }
+
+                    // Check for consecutive empty elements (skipping whitespace-only strings)
+                    if (isEmptyElement(current)) {
+                        const emptyElements = [current]
+                        const indicesToSkip = [i]
+                        let j = i + 1
+
+                        while (j < content.length) {
+                            if (isWhitespaceOnly(content[j])) {
+                                indicesToSkip.push(j)
+                                j++
+                                continue
+                            }
+                            if (isEmptyElement(content[j]) && content[j].tag === current.tag) {
+                                emptyElements.push(content[j])
+                                indicesToSkip.push(j)
+                                j++
+                                continue
+                            }
+                            break
+                        }
+
+                        if (emptyElements.length >= 3) {
+                            // Collapse: keep only one element
+                            result.push(current)
+                            i = j
+                            continue
+                        }
+                    }
+
+                    result.push(current)
+                    i++
+                }
+                return result
+            }
+
+            return collapseConsecutive(tree)
+        }
+    }
+
     // Process HTML
     const processor = posthtml()
         .use(removeTagsAndAttrsPlugin())
+        .use(collapseEmptyElementsPlugin())
         .use(beautify({
             rules: {
                 indent: 1,          // 1-space indent
