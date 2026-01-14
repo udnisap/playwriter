@@ -90,3 +90,7 @@ the playwright source code is cloned at `./tmp/playwright` (gitignored). use Tas
 - `packages/playwright-core/src/server/chromium/crConnection.ts` - CDP websocket connection
 - `packages/playwright-core/src/server/chromium/crBrowser.ts` - browser and page discovery
 - `packages/playwright-core/src/server/chromium/chromium.ts` - connectOverCDP implementation
+
+## ./claude-extension
+
+ignore ./claude-extension. this is the source code of the Claude Chrome extension. used to reverse engineer new methods and tools to extract and control the page
