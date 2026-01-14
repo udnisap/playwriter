@@ -3,15 +3,14 @@ import { readFileSync } from 'fs'
 import { formatHtmlForPrompt } from './htmlrewrite.js'
 
 test('formatHtmlForPrompt', async () => {
-  const res = await fetch('https://framer.com')
-  const html = await res.text()
+  const html = readFileSync(new URL('./assets/framer.html', import.meta.url), 'utf-8')
   const newHtml = await formatHtmlForPrompt({ html })
   expect(newHtml).toMatchInlineSnapshot(
     `
     "<!doctype html>
     <html data-redirect-timezone="1">
      <body>
-      <div data-framer-hydrate-v2="{&quot;routeId&quot;:&quot;Zw20hns9v&quot;,&quot;localeId&quot;:&quot;default&quot;,&quot;breakpoints&quot;:[{&quot;hash&quot;:&quot;2ngqvi&quot;,&quot;mediaQuery&quot;:&quot;(min-width: 1200px)&quot;},{&quot;hash&quot;:&quot;11ziuji&quot;,&quot;mediaQuery&quot;:&quot;(min-width: 810px) and (max-width: 1199.98px)&quot;},{&quot;hash&quot;:...237 more characters" data-framer-ssr-released-at="2026-01-13T10:16:21.728Z" data-framer-page-optimized-at="2026-01-13T16:39:37.747Z" data-framer-generated-page="">
+      <div data-framer-hydrate-v2="{&quot;routeId&quot;:&quot;Zw20hns9v&quot;,&quot;localeId&quot;:&quot;default&quot;,&quot;breakpoints&quot;:[{&quot;hash&quot;:&quot;2ngqvi&quot;,&quot;mediaQuery&quot;:&quot;(min-width: 1200px)&quot;},{&quot;hash&quot;:&quot;11ziuji&quot;,&quot;mediaQuery&quot;:&quot;(min-width: 810px) and (max-width: 1199.98px)&quot;},{&quot;hash&quot;:...237 more characters" data-framer-ssr-released-at="2026-01-14T12:43:55.253Z" data-framer-page-optimized-at="2026-01-14T15:47:27.367Z" data-framer-generated-page="">
        <div data-layout-template="true" data-selection="true">
         <div>
          <nav data-framer-name="Desktop Nav" data-hide-scrollbars="true">
@@ -2546,7 +2545,7 @@ test('formatHtmlForPrompt', async () => {
                <div data-framer-name="UI">
                 <div data-framer-name="Stats">
                  <div data-border="true" data-framer-name="Content">
-                  <p>January 13, 2026</p>
+                  <p>January 14, 2026</p>
                   <div>
                    <div data-framer-component-type="RichTextContainer">
                     <p>Pageviews</p>
@@ -2806,7 +2805,7 @@ test('formatHtmlForPrompt', async () => {
                <div data-framer-name="UI">
                 <div data-framer-name="Stats">
                  <div data-border="true" data-framer-name="Content">
-                  <p>January 13, 2026</p>
+                  <p>January 14, 2026</p>
                   <div>
                    <div data-framer-component-type="RichTextContainer">
                     <p>Pageviews</p>
@@ -3066,7 +3065,7 @@ test('formatHtmlForPrompt', async () => {
                <div data-framer-name="UI">
                 <div data-framer-name="Stats">
                  <div data-border="true" data-framer-name="Content">
-                  <p>January 13, 2026</p>
+                  <p>January 14, 2026</p>
                   <div>
                    <div data-framer-component-type="RichTextContainer">
                     <p>Pageviews</p>
