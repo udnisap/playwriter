@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.48
+
+### Bug Fixes
+
+- **Fix SSE streaming (issue #22)**: CDP's Network domain buffers response bodies by default, which breaks SSE/streaming - data arrives at Chrome but `ReadableStream` never receives it. Now `Network.enable` defaults to `maxTotalBufferSize: 0` to disable buffering.
+
+### Features
+
+- **Auto-switch to another page when default page is closed**: When the current page is closed, MCP automatically switches to another available page instead of erroring
+- **Optimized screenshot token usage**: Screenshots are now resized with sharp to reduce Claude token consumption
+- **Reading response bodies**: Agents can re-enable Network buffering via `Network.disable` + `Network.enable` with explicit buffer sizes when they need `response.body()`
+
+### Changes
+
+- **Dependencies cleanup**: Removed unused deps, updated to zod v4, replaced chalk with picocolors
+
 ## 0.0.47
 
 ### Bug Fixes
