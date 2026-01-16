@@ -33,6 +33,30 @@ cli
       process.exit(1)
     }
 
+    // Check if server is already running on the port
+    const net = await import('node:net')
+    const isPortInUse = await new Promise<boolean>((resolve) => {
+      const socket = new net.Socket()
+      socket.setTimeout(500)
+      socket.on('connect', () => {
+        socket.destroy()
+        resolve(true)
+      })
+      socket.on('timeout', () => {
+        socket.destroy()
+        resolve(false)
+      })
+      socket.on('error', () => {
+        resolve(false)
+      })
+      socket.connect(RELAY_PORT, '127.0.0.1')
+    })
+
+    if (isPortInUse) {
+      console.log(`Playwriter server is already running on port ${RELAY_PORT}`)
+      process.exit(0)
+    }
+
     const logger = createFileLogger()
 
     process.title = 'playwriter-serve'
