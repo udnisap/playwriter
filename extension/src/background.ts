@@ -19,6 +19,7 @@ let tabGroupQueue: Promise<void> = Promise.resolve()
 class ConnectionManager {
   ws: WebSocket | null = null
   private connectionPromise: Promise<void> | null = null
+  preserveTabsOnDetach = false
 
   async ensureConnection(): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -214,6 +215,10 @@ class ConnectionManager {
     chrome.debugger.onEvent.removeListener(onDebuggerEvent)
     chrome.debugger.onDetach.removeListener(onDebuggerDetach)
 
+    const isExtensionReplaced = reason === 'Extension Replaced' || code === 4001
+    const isExtensionInUse = reason === 'Extension Already In Use' || code === 4002
+    this.preserveTabsOnDetach = !(isExtensionReplaced || isExtensionInUse)
+
     const { tabs } = store.getState()
 
     for (const [tabId] of tabs) {
@@ -228,7 +233,7 @@ class ConnectionManager {
     // Only one extension can connect to the relay server at a time.
     // Code 4001: Another extension replaced this one (this extension was idle)
     // Code 4002: This extension tried to connect but another is actively in use
-    if (reason === 'Extension Replaced' || code === 4001) {
+    if (isExtensionReplaced) {
       logger.debug('Disconnected: another Playwriter extension connected (this one was idle)')
       store.setState({
         tabs: new Map(),
@@ -238,7 +243,7 @@ class ConnectionManager {
       return
     }
 
-    if (reason === 'Extension Already In Use' || code === 4002) {
+    if (isExtensionInUse) {
       logger.debug('Rejected: another Playwriter extension is actively in use')
       store.setState({
         tabs: new Map(),
@@ -333,6 +338,7 @@ class ConnectionManager {
             })
           }
         }
+        this.preserveTabsOnDetach = false
       } catch (error: any) {
         logger.debug('Connection attempt failed:', error.message)
         // Check if rejected because another extension is actively in use
@@ -679,6 +685,11 @@ function onDebuggerDetach(source: chrome.debugger.Debuggee, reason: `${chrome.de
   const tabId = source.tabId
   if (!tabId || !store.getState().tabs.has(tabId)) {
     logger.debug('Ignoring debugger detach event for untracked tab:', tabId)
+    return
+  }
+
+  if (connectionManager.preserveTabsOnDetach) {
+    logger.debug('Ignoring debugger detach during relay reconnect:', tabId, reason)
     return
   }
 
