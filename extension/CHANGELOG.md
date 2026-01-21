@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.69
+
+### Features
+
+- **First extension keeps connection**: When multiple Playwriter extensions are installed, the actively-used one (with tabs) now keeps the connection. New extensions are rejected with code 4002 instead of taking over.
+- **Smarter reconnection**: Extension now polls `/extension/status` for `activeTargets` count and only attempts reconnection when the other extension has no active tabs.
+
+### Bug Fixes
+
+- **Proper state handling for 4002 rejection**: Fixed issue where extension would keep retrying forever when rejected during WebSocket handshake. Now correctly enters `extension-replaced` polling state.
+
 ## 0.0.68
 
 ### Bug Fixes

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.51
+
+### Features
+
+- **First extension keeps connection**: When multiple Playwriter extensions are installed (e.g., dev and prod), the first one with active tabs now keeps the connection instead of being replaced by newer connections. Idle extensions (no tabs) can still be replaced.
+- **Smarter extension slot detection**: `/extension/status` endpoint now returns `activeTargets` count, allowing extensions to know when the slot becomes available (no active tabs).
+
 ## 0.0.50
 
 ### Bug Fixes

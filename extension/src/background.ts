@@ -110,7 +110,12 @@ class ConnectionManager {
         if (settled) return
         settled = true
         clearTimeout(timeout)
-        reject(new Error(`WebSocket closed: ${event.reason || event.code}`))
+        // Normalize 4002 rejection to consistent error message for callers to detect
+        if (event.code === 4002 || event.reason === 'Extension Already In Use') {
+          reject(new Error('Extension Already In Use'))
+        } else {
+          reject(new Error(`WebSocket closed: ${event.reason || event.code}`))
+        }
       }
     })
 
@@ -221,13 +226,24 @@ class ConnectionManager {
     this.ws = null
 
     // Only one extension can connect to the relay server at a time.
-    // This happens when another Playwriter extension (dev/prod, or another Chrome profile) connects.
+    // Code 4001: Another extension replaced this one (this extension was idle)
+    // Code 4002: This extension tried to connect but another is actively in use
     if (reason === 'Extension Replaced' || code === 4001) {
-      logger.debug('Disconnected: another Playwriter extension connected to the relay server')
+      logger.debug('Disconnected: another Playwriter extension connected (this one was idle)')
       store.setState({
         tabs: new Map(),
         connectionState: 'extension-replaced',
         errorText: 'Another Playwriter extension took over the connection',
+      })
+      return
+    }
+
+    if (reason === 'Extension Already In Use' || code === 4002) {
+      logger.debug('Rejected: another Playwriter extension is actively in use')
+      store.setState({
+        tabs: new Map(),
+        connectionState: 'extension-replaced',
+        errorText: 'Another Playwriter extension is actively in use',
       })
       return
     }
@@ -249,16 +265,18 @@ class ConnectionManager {
         continue
       }
 
-      // When another Playwriter extension took over, poll until slot is free
+      // When another Playwriter extension took over, poll until slot is free.
+      // Slot is free when: no extension connected, OR connected but no active tabs.
       if (store.getState().connectionState === 'extension-replaced') {
         try {
           const response = await fetch(`http://127.0.0.1:${RELAY_PORT}/extension/status`, { method: 'GET', signal: AbortSignal.timeout(2000) })
-          const data = await response.json()
-          if (!data.connected) {
+          const data = await response.json() as { connected: boolean; activeTargets: number }
+          const slotAvailable = !data.connected || data.activeTargets === 0
+          if (slotAvailable) {
             store.setState({ connectionState: 'idle', errorText: undefined })
-            logger.debug('Extension slot is free, cleared error state')
+            logger.debug('Extension slot is free (connected:', data.connected, 'activeTargets:', data.activeTargets, '), cleared error state')
           } else {
-            logger.debug('Extension slot still taken, will retry...')
+            logger.debug('Extension slot still taken (activeTargets:', data.activeTargets, '), will retry...')
           }
         } catch {
           logger.debug('Server not available, will retry...')
@@ -317,7 +335,15 @@ class ConnectionManager {
         }
       } catch (error: any) {
         logger.debug('Connection attempt failed:', error.message)
-        store.setState({ connectionState: 'idle' })
+        // Check if rejected because another extension is actively in use
+        if (error.message === 'Extension Already In Use') {
+          store.setState({
+            connectionState: 'extension-replaced',
+            errorText: 'Another Playwriter extension is actively in use',
+          })
+        } else {
+          store.setState({ connectionState: 'idle' })
+        }
       }
 
       await sleep(3000)
@@ -828,13 +854,28 @@ async function connectTab(tabId: number): Promise<void> {
     // Distinguish between WS connection errors and tab-specific errors
     // WS errors: keep in 'connecting' state, maintainLoop will retry when WS is available
     // Tab errors: show 'error' state (e.g., restricted page, debugger attach failed)
+    // Extension in use: set global 'extension-replaced' state to enter polling mode
+    const isExtensionInUse =
+      error.message === 'Extension Already In Use' ||
+      error.message === 'Another Playwriter extension is already connected'
+
     const isWsError =
       error.message === 'Server not available' ||
       error.message === 'Connection timeout' ||
-      error.message === 'Another Playwriter extension is already connected' ||
       error.message.startsWith('WebSocket')
 
-    if (isWsError) {
+    if (isExtensionInUse) {
+      logger.debug(`Another extension is in use, entering polling mode`)
+      store.setState((state) => {
+        const newTabs = new Map(state.tabs)
+        newTabs.delete(tabId)
+        return {
+          tabs: newTabs,
+          connectionState: 'extension-replaced',
+          errorText: 'Another Playwriter extension is actively in use',
+        }
+      })
+    } else if (isWsError) {
       logger.debug(`WS connection failed, keeping tab ${tabId} in connecting state for retry`)
       // Tab stays in 'connecting' state - maintainLoop will retry when WS becomes available
     } else {

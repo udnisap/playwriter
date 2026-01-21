@@ -451,7 +451,10 @@ export async function startPlayWriterCDPRelayServer({ port = 19988, host = '127.
   })
 
   app.get('/extension/status', (c) => {
-    return c.json({ connected: extensionWs !== null })
+    return c.json({
+      connected: extensionWs !== null,
+      activeTargets: connectedTargets.size
+    })
   })
 
   // CDP Discovery Endpoints - Standard Chrome DevTools Protocol HTTP API
@@ -765,11 +768,19 @@ export async function startPlayWriterCDPRelayServer({ port = 19988, host = '127.
     return {
       onOpen(_event, ws) {
         if (extensionWs) {
-          logger?.log(pc.yellow('Closing existing extension connection to replace with new one'))
+          // Only allow replacement if the existing extension has no active tabs.
+          // This prevents a new extension from hijacking an actively-used session.
+          // If the existing extension is idle (no tabs), allow the new one to take over.
+          if (connectedTargets.size > 0) {
+            logger?.log(pc.yellow(`Rejecting new extension - existing one has ${connectedTargets.size} active tab(s)`))
+            ws.close(4002, 'Extension Already In Use')
+            return
+          }
+
+          logger?.log(pc.yellow('Replacing idle extension connection (no active tabs)'))
           extensionWs.close(4001, 'Extension Replaced')
 
           // Clear state from the old connection to prevent leaks
-          connectedTargets.clear()
           for (const pending of extensionPendingRequests.values()) {
             pending.reject(new Error('Extension connection replaced'))
           }
