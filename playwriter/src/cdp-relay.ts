@@ -1018,6 +1018,32 @@ export async function startPlayWriterCDPRelayServer({ port = 19988, host = '127.
   // CLI Execute Endpoints - For stateful code execution via CLI
   // ============================================================================
   
+  // Security middleware for CLI endpoints - blocks browser-based attacks
+  // CLI tools (curl, playwriter CLI) don't send Origin headers, but browsers always do
+  app.use('/cli/*', async (c, next) => {
+    // 1. Localhost check: CLI endpoints must only be accessed from localhost
+    // This prevents remote exploitation even if server is exposed via 0.0.0.0
+    const info = getConnInfo(c)
+    const remoteAddress = info.remote.address
+    const isLocalhost = remoteAddress === '127.0.0.1' || remoteAddress === '::1'
+    
+    if (!isLocalhost) {
+      logger?.log(pc.red(`Rejecting /cli request from remote IP: ${remoteAddress}`))
+      return c.text('Forbidden - CLI endpoints are localhost only', 403)
+    }
+    
+    // 2. Origin check: Reject requests with browser Origin headers
+    // Browsers always send Origin for cross-origin requests (including localhost:different-port)
+    // CLI tools don't send Origin, so this blocks website-based attacks while allowing CLI usage
+    const origin = c.req.header('origin')
+    if (origin) {
+      logger?.log(pc.red(`Rejecting /cli request with Origin header: ${origin}`))
+      return c.text('Forbidden - CLI endpoints cannot be called from browsers', 403)
+    }
+    
+    await next()
+  })
+  
   // Session counter for suggesting next session number
   let nextSessionNumber = 1
   
