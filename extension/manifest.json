@@ -6,7 +6,7 @@
   "permissions": ["debugger", "tabGroups", "contextMenus", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": {
-    "service_worker": "lib/background.mjs",
+    "service_worker": "background.js",
     "type": "module"
   },
   "action": {

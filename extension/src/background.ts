@@ -1163,7 +1163,7 @@ function updateContextMenuVisibility(): void {
 chrome.runtime.onInstalled.addListener((details) => {
   if (import.meta.env.TESTING) return
   if (details.reason === 'install') {
-    void chrome.tabs.create({ url: 'welcome.html' })
+    void chrome.tabs.create({ url: 'src/welcome.html' })
   }
 })
 

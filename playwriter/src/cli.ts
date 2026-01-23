@@ -7,10 +7,10 @@ import { ensureRelayServer, RELAY_PORT } from './relay-client.js'
 const cli = cac('playwriter')
 
 cli
-  .command('', 'Start the MCP server. See https://playwriter.dev/prompt.md for usage')
+  .command('', 'Start the MCP server or controls the browser with -e')
   .option('--host <host>', 'Remote relay server host to connect to (or use PLAYWRITER_HOST env var)')
   .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
-  .option('-e, --eval <code>', 'Execute JavaScript code and exit')
+  .option('-e, --eval <code>', 'Execute JavaScript code and exit, read https://playwriter.dev/prompt.md for usage')
   .option('--timeout <ms>', 'Execution timeout in milliseconds', { default: 5000 })
   .option('-s, --session <name>', 'Session name (required for -e)')
   .action(async (options: { host?: string; token?: string; eval?: string; timeout?: number; session?: string }) => {
@@ -25,7 +25,7 @@ cli
       })
       return
     }
-    
+
     // Otherwise start the MCP server
     const { startMcp } = await import('./mcp.js')
     await startMcp({
@@ -44,16 +44,16 @@ async function executeCode(options: {
   const { code, timeout, host, token } = options
   const cwd = process.cwd()
   const sessionId = options.sessionId || process.env.PLAYWRITER_SESSION
-  
+
   // Determine server URL
   const serverHost = host || process.env.PLAYWRITER_HOST || '127.0.0.1'
   const serverUrl = `http://${serverHost}:${RELAY_PORT}`
-  
+
   // Ensure relay server is running (only for local)
   if (!host && !process.env.PLAYWRITER_HOST) {
     await ensureRelayServer({ logger: console })
   }
-  
+
   // Session is required
   if (!sessionId) {
     try {
@@ -65,10 +65,10 @@ async function executeCode(options: {
     }
     process.exit(1)
   }
-  
+
   // Build request URL with token if provided
   const executeUrl = `${serverUrl}/cli/execute`
-  
+
   try {
     const response = await fetch(executeUrl, {
       method: 'POST',
@@ -78,15 +78,15 @@ async function executeCode(options: {
       },
       body: JSON.stringify({ sessionId, code, timeout, cwd }),
     })
-    
+
     if (!response.ok) {
       const text = await response.text()
       console.error(`Error: ${response.status} ${text}`)
       process.exit(1)
     }
-    
+
     const result = await response.json() as { text: string; images: Array<{ data: string; mimeType: string }>; isError: boolean }
-    
+
     // Print output
     if (result.text) {
       if (result.isError) {
@@ -95,12 +95,12 @@ async function executeCode(options: {
         console.log(result.text)
       }
     }
-    
+
     // Note: images are base64 encoded, we could save them to files if needed
     if (result.images && result.images.length > 0) {
       console.log(`\n${result.images.length} screenshot(s) captured`)
     }
-    
+
     if (result.isError) {
       process.exit(1)
     }
@@ -126,11 +126,11 @@ cli
     const sessionId = options.session || process.env.PLAYWRITER_SESSION
     const serverHost = options.host || process.env.PLAYWRITER_HOST || '127.0.0.1'
     const serverUrl = `http://${serverHost}:${RELAY_PORT}`
-    
+
     if (!options.host && !process.env.PLAYWRITER_HOST) {
       await ensureRelayServer({ logger: console })
     }
-    
+
     if (!sessionId) {
       try {
         const res = await fetch(`${serverUrl}/cli/session/suggest`)
@@ -141,20 +141,20 @@ cli
       }
       process.exit(1)
     }
-    
+
     try {
       const response = await fetch(`${serverUrl}/cli/reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, cwd }),
       })
-      
+
       if (!response.ok) {
         const text = await response.text()
         console.error(`Error: ${response.status} ${text}`)
         process.exit(1)
       }
-      
+
       const result = await response.json() as { success: boolean; pageUrl: string; pagesCount: number }
       console.log(`Connection reset successfully. ${result.pagesCount} page(s) available. Current page URL: ${result.pageUrl}`)
     } catch (error: any) {
@@ -212,7 +212,7 @@ cli
     // Lazy-load heavy dependencies only when serve command is used
     const { createFileLogger } = await import('./create-logger.js')
     const { startPlayWriterCDPRelayServer } = await import('./cdp-relay.js')
-    
+
     const logger = createFileLogger()
 
     process.title = 'playwriter-serve'

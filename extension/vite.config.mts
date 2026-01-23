@@ -38,23 +38,23 @@ export default defineConfig({
             return JSON.stringify(manifest, null, 2);
           }
         },
-        {
-          src: resolve(__dirname, 'welcome.html'),
-          dest: '.'
-        }
       ]
     })
   ],
 
   build: {
-    lib: {
-      entry: resolve(__dirname, 'src/background.ts'),
-      fileName: 'lib/background',
-      formats: ['es']
-    },
     outDir: 'dist',
     emptyOutDir: false,
-    minify: false
+    minify: false,
+    rollupOptions: {
+      input: {
+        background: resolve(__dirname, 'src/background.ts'),
+        welcome: resolve(__dirname, 'src/welcome.html'),
+      },
+      output: {
+        entryFileNames: '[name].js',
+      },
+    },
   },
   define: defineEnv
 });
