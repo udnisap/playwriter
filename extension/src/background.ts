@@ -1122,7 +1122,13 @@ async function handleStartRecording(params: StartRecordingParams): Promise<{ suc
     const streamId = await new Promise<string>((resolve, reject) => {
       chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
         if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message))
+          const errorMsg = chrome.runtime.lastError.message || 'Unknown error'
+          // Chrome returns this error when activeTab permission hasn't been granted
+          if (errorMsg.includes('Extension has not been invoked') || errorMsg.includes('activeTab')) {
+            reject(new Error(`${errorMsg}. Toggle the Playwriter extension icon on this tab to enable recording, then try again.`))
+          } else {
+            reject(new Error(errorMsg))
+          }
         } else if (!id) {
           reject(new Error('Failed to get media stream ID'))
         } else {
