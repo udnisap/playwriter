@@ -23,7 +23,7 @@ async function ensureOffscreenDocument(): Promise<void> {
   // Check if already exists
   const existingContexts = await chrome.runtime.getContexts({
     contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
-    documentUrls: [chrome.runtime.getURL('offscreen.html')],
+    documentUrls: [chrome.runtime.getURL('src/offscreen.html')],
   })
 
   if (existingContexts.length > 0) {
@@ -36,7 +36,7 @@ async function ensureOffscreenDocument(): Promise<void> {
   }
 
   offscreenDocumentCreating = chrome.offscreen.createDocument({
-    url: 'offscreen.html',
+    url: 'src/offscreen.html',
     reasons: [chrome.offscreen.Reason.USER_MEDIA],
     justification: 'Screen recording via chrome.tabCapture',
   })

@@ -54,8 +54,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         background: resolve(__dirname, 'src/background.ts'),
-        welcome: resolve(__dirname, 'src/welcome.html'),
         offscreen: resolve(__dirname, 'src/offscreen.html'),
+        welcome: resolve(__dirname, 'src/welcome.html'),
       },
       output: {
         entryFileNames: (chunkInfo) => {
