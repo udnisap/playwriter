@@ -89,8 +89,7 @@ playwriter -e "await state.dbg.setBreakpoint({ file: state.scripts[0].url, line:
 **Live edit page code:**
 ```bash
 playwriter -e "state.cdp = await getCDPSession({ page }); state.editor = createEditor({ cdp: state.cdp }); await state.editor.enable()"
-playwriter -e "state.matches = await state.editor.grep({ regex: /DEBUG/ }); console.log(state.matches)"
-playwriter -e "await state.editor.edit({ url: state.matches[0].url, oldString: 'const DEBUG = false', newString: 'const DEBUG = true' })"
+playwriter -e "await state.editor.edit({ url: 'https://example.com/app.js', oldString: 'const DEBUG = false', newString: 'const DEBUG = true' })"
 ```
 
 **Screenshot with labels:**
