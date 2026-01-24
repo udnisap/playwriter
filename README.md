@@ -20,11 +20,11 @@
 
 1. **Install the Chrome Extension**
 
-   [**Install Extension**](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe) - Install the [Playwriter MCP Extension](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe) from the Chrome Web Store (or load it unpacked during development). Pin the extension to your Chrome toolbar for easy access.
+   [**Install Extension**](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe) from the Chrome Web Store. Pin the extension to your Chrome toolbar for easy access.
 
 2. **Connect to a Tab**
 
-   Click the Playwriter MCP extension icon on any tab you want to control. The icon will turn green when successfully connected.
+   Click the Playwriter extension icon on any tab you want to control. The icon will turn green when successfully connected.
 
    **Icon states:**
    - **Gray:** Not connected
@@ -32,41 +32,85 @@
    - **Orange badge (...):** Connecting
    - **Red badge (!):** Error
 
-3. **Add MCP to Your Agent**
+3. **Add the Skill to Your Agent**
 
-   Add the following configuration to your MCP client settings (e.g., Claude Desktop's `claude_desktop_config.json`):
-
-   ```json
-   {
-     "mcpServers": {
-       "playwriter": {
-         "command": "npx",
-         "args": ["-y", "playwriter@latest"]
-       }
-     }
-   }
+   ```bash
+   npx skills add remorses/playwriter
    ```
 
-Or use the following command to automatically add the MCP setting for your client:
+   This gives your AI agent the knowledge to use Playwriter via CLI commands.
+
+## Quick Start
+
+Once installed, your agent can control the browser:
+
+```bash
+playwriter session new          # → 1
+playwriter -s 1 -e "await page.goto('https://example.com')"
+playwriter -s 1 -e "console.log(await accessibilitySnapshot({ page }))"
+playwriter -s 1 -e "await page.locator('aria-ref=e5').click()"
+```
+
+## MCP Setup (Alternative)
+
+If you prefer using Playwriter as an MCP server instead of the CLI, add this to your MCP client settings:
+
+```json
+{
+  "mcpServers": {
+    "playwriter": {
+      "command": "npx",
+      "args": ["-y", "playwriter@latest"]
+    }
+  }
+}
+```
+
+Or auto-configure with:
 
 ```sh
 npx -y @playwriter/install-mcp playwriter@latest
-
 ```
-
-Restart your MCP client and you're ready to go! Your AI assistant can now control the browser through the extension.
 
 ## Usage
 
+### Using the CLI
+
+The CLI is the recommended way to use Playwriter. Sessions persist state across commands.
+
+```bash
+# Session management
+playwriter session new              # Create new session, outputs ID (e.g., 1)
+playwriter session list             # List active sessions with their state keys
+playwriter session reset <id>       # Reset if connection has issues
+
+# Execute code
+playwriter -s 1 -e "await page.goto('https://example.com')"
+playwriter -s 1 -e "await page.click('button')"
+playwriter -s 1 -e "console.log(await page.title())"
+playwriter -s 1 -e "await page.screenshot({ path: 'screenshot.png', scale: 'css' })"
+playwriter -s 1 -e "console.log(await accessibilitySnapshot({ page }))"
+```
+
+Multiline code:
+
+```bash
+playwriter -s 1 -e $'
+const title = await page.title();
+const url = page.url();
+console.log({ title, url });
+'
+```
+
 ### Using the MCP
 
-**Important:** Before using the MCP, you must [install](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe) and enable the extension on at least one tab:
+If using the MCP instead of CLI, make sure the extension is enabled on at least one tab:
 
 1. Pin the Playwriter extension to your Chrome toolbar (click the puzzle icon)
 2. Navigate to a tab you want to control
 3. Click the extension icon - it will turn green when connected
 
-Once enabled on one or more tabs, your AI assistant can:
+Once enabled, your AI assistant can:
 
 - Control all enabled tabs through the `execute` tool
 - Switch between tabs using playwright's context and page APIs
