@@ -115,15 +115,8 @@ async function handleStartRecording(params: StartRecordingMessage): Promise<any>
       } as any,
     })
 
-    // Determine best codec
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
-      ? 'video/webm;codecs=vp9,opus'
-      : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
-        ? 'video/webm;codecs=vp8,opus'
-        : 'video/webm'
-
     const recorder = new MediaRecorder(stream, {
-      mimeType,
+      mimeType: 'video/mp4',
       videoBitsPerSecond: params.videoBitsPerSecond || 2500000,
       audioBitsPerSecond: params.audioBitsPerSecond || 128000,
     })
@@ -163,7 +156,7 @@ async function handleStartRecording(params: StartRecordingMessage): Promise<any>
     // Start with 1 second chunks
     recorder.start(1000)
 
-    return { success: true, tabId: params.tabId, startedAt, mimeType }
+    return { success: true, tabId: params.tabId, startedAt, mimeType: 'video/mp4' }
   } catch (error: any) {
     console.error('Failed to start recording:', error)
     return { success: false, error: error.message }
