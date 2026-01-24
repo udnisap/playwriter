@@ -19,3 +19,6 @@ opensrc/
 
 # snapshots
 playwriter/src/snapshots/shadcn-ui-accessibility.md
+
+# generated from skills/playwriter/SKILL.md
+playwriter/src/prompt.md

@@ -4,12 +4,20 @@
  * These files are written to:
  * - playwriter/dist/ - for the MCP to read at runtime
  * - website/public/ - for hosting on playwriter.dev
+ * 
+ * Source of truth:
+ * - skills/playwriter/SKILL.md - manually edited, contains full docs including CLI usage
+ * 
+ * Generated files:
+ * - playwriter/src/prompt.md - MCP prompt (SKILL.md minus frontmatter and CLI sections)
+ * - website/public/SKILL.md - full copy for playwriter.dev/SKILL.md
  */
 
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dedent from 'string-dedent'
+import { Lexer, type Token, type Tokens } from 'marked'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const playwriterDir = path.join(__dirname, '..')
@@ -118,84 +126,69 @@ function buildStylesApi() {
   writeToDestinations('styles-api.md', content)
 }
 
-function buildSkill() {
-  const promptContent = readFile('src/prompt.md')
+/**
+ * Removes frontmatter and CLI-related sections from SKILL.md to create prompt.md for the MCP.
+ * 
+ * Sections removed:
+ * - Frontmatter (--- block at top)
+ * - "## CLI Usage" section and all its subsections (### Execute code, ### Reset connection)
+ */
+function stripCliSectionsFromSkill(skillContent: string): string {
+  // Remove frontmatter using regex
+  const withoutFrontmatter = skillContent.replace(/^---\n[\s\S]*?\n---\n*/, '')
   
-  const frontmatter = dedent`
-    ---
-    name: playwriter
-    description: Control Chrome browser via Playwright code snippets. Automate web interactions, take screenshots, inspect accessibility trees, and debug web applications.
-    ---
-  `
+  // Parse markdown tokens
+  const tokens = Lexer.lex(withoutFrontmatter)
   
-  const cliUsage = dedent`
-    ## CLI Usage
-
-    If \`playwriter\` command is not found, install globally or use npx/bunx:
-
-    \`\`\`bash
-    npm install -g playwriter
-    # or use without installing:
-    npx playwriter -e "..." -s 1
-    bunx playwriter -e "..." -s 1
-    \`\`\`
-
-    ### Execute code
-
-    \`\`\`bash
-    playwriter -e "<code>" -s <session>
-    \`\`\`
-
-    The \`-s\` flag specifies a session name (required). Use the same session to persist state across commands.
-
-    **Examples:**
-
-    \`\`\`bash
-    # Navigate to a page
-    playwriter -e "await page.goto('https://example.com')" -s 1
-
-    # Click a button
-    playwriter -e "await page.click('button')" -s 1
-
-    # Get page title
-    playwriter -e "console.log(await page.title())" -s 1
-
-    # Take a screenshot
-    playwriter -e "await page.screenshot({ path: 'screenshot.png', scale: 'css' })" -s 1
-
-    # Get accessibility snapshot
-    playwriter -e "console.log(await accessibilitySnapshot({ page }))" -s 1
-    \`\`\`
-
-    ### Reset connection
-
-    If the browser connection is stale or broken:
-
-    \`\`\`bash
-    playwriter reset -s <session>
-    \`\`\`
-
-  `
+  // Filter out CLI Usage section and its subsections
+  const filteredTokens: Token[] = []
+  let skipUntilLevel: number | null = null
   
-  const content = frontmatter + '\n\n' + cliUsage + '\n' + promptContent
+  for (const token of tokens) {
+    if (token.type === 'heading') {
+      const heading = token as Tokens.Heading
+      // Check if we should start skipping (CLI Usage section)
+      if (heading.depth === 2 && heading.text === 'CLI Usage') {
+        skipUntilLevel = 2
+        continue
+      }
+      // Check if we should stop skipping (next h2 section)
+      if (skipUntilLevel !== null && heading.depth <= skipUntilLevel) {
+        skipUntilLevel = null
+      }
+    }
+    
+    if (skipUntilLevel === null) {
+      filteredTokens.push(token)
+    }
+  }
   
-  // Write to repo root skills/ folder for add-skill discovery
-  const skillsDir = path.join(playwriterDir, '..', 'skills', 'playwriter')
-  ensureDir(skillsDir)
-  fs.writeFileSync(path.join(skillsDir, 'SKILL.md'), content, 'utf-8')
-  console.log('Generated skills/playwriter/SKILL.md')
+  // Reconstruct markdown from tokens
+  return filteredTokens.map((token) => { return token.raw }).join('').trim() + '\n'
+}
+
+function buildPromptFromSkill() {
+  // Read SKILL.md as source of truth
+  const skillPath = path.join(playwriterDir, '..', 'skills', 'playwriter', 'SKILL.md')
+  const skillContent = fs.readFileSync(skillPath, 'utf-8')
   
-  // Write to website/public/ for hosting at playwriter.dev/prompt.md
+  // Generate prompt.md for MCP (without frontmatter and CLI sections)
+  const promptContent = stripCliSectionsFromSkill(skillContent)
+  const srcPromptPath = path.join(playwriterDir, 'src', 'prompt.md')
+  fs.writeFileSync(srcPromptPath, promptContent, 'utf-8')
+  console.log('Generated playwriter/src/prompt.md (from SKILL.md)')
+  
+  // Copy full SKILL.md to website/public/ for hosting at playwriter.dev/SKILL.md
   const websitePublicRoot = path.join(playwriterDir, '..', 'website', 'public')
   ensureDir(websitePublicRoot)
-  fs.writeFileSync(path.join(websitePublicRoot, 'prompt.md'), content, 'utf-8')
-  console.log('Generated website/public/prompt.md')
+  fs.writeFileSync(path.join(websitePublicRoot, 'SKILL.md'), skillContent, 'utf-8')
+  console.log('Generated website/public/SKILL.md')
 }
 
 // Run all builds
 buildDebuggerApi()
 buildEditorApi()
 buildStylesApi()
-buildSkill()
+buildPromptFromSkill()
 
 console.log('Resource files generated successfully')

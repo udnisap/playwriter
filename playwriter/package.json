@@ -34,6 +34,7 @@
     "bippy": "^0.5.27",
     "devtools-protocol": "^0.0.1568893",
     "image-size": "^2.0.2",
+    "marked": "^17.0.1",
     "mcp-extension": "workspace:*",
     "vite-node": "^5.0.0",
     "vitest": "^4.0.8"

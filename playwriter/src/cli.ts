@@ -10,7 +10,7 @@ cli
   .command('', 'Start the MCP server or controls the browser with -e')
   .option('--host <host>', 'Remote relay server host to connect to (or use PLAYWRITER_HOST env var)')
   .option('--token <token>', 'Authentication token (or use PLAYWRITER_TOKEN env var)')
-  .option('-e, --eval <code>', 'Execute JavaScript code and exit, read https://playwriter.dev/prompt.md for usage')
+  .option('-e, --eval <code>', 'Execute JavaScript code and exit, read https://playwriter.dev/SKILL.md for usage')
   .option('--timeout <ms>', 'Execution timeout in milliseconds', { default: 5000 })
   .option('-s, --session <name>', 'Session name (required for -e)')
   .action(async (options: { host?: string; token?: string; eval?: string; timeout?: number; session?: string }) => {
