@@ -58,12 +58,7 @@ export default defineConfig({
         welcome: resolve(__dirname, 'src/welcome.html'),
       },
       output: {
-        entryFileNames: (chunkInfo) => {
-          if (chunkInfo.name === 'background') {
-            return 'lib/background.mjs';
-          }
-          return '[name].js';
-        },
+        entryFileNames: '[name].js',
         format: 'es',
       },
     },

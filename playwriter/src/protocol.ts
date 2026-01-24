@@ -146,6 +146,17 @@ export type StartRecordingResult = {
   error: string
 }
 
+/** Result from extension - doesn't include path/size since relay writes the file */
+export type ExtensionStopRecordingResult = {
+  success: true
+  tabId: number
+  duration: number
+} | {
+  success: false
+  error: string
+}
+
+/** Final result from relay - includes path/size after file is written */
 export type StopRecordingResult = {
   success: true
   tabId: number

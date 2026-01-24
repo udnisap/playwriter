@@ -591,36 +591,14 @@ export class PlaywrightExecutor {
       }
 
       // Screen recording functions (via chrome.tabCapture in extension - survives navigation)
+      // Recording uses chrome.tabCapture which requires activeTab permission.
+      // This permission is granted when the user clicks the Playwriter extension icon on a tab.
       const relayPort = this.cdpConfig.port || 19988
-
-      const startRecordingFn = async (options: {
-        page?: Page
-        frameRate?: number
-        videoBitsPerSecond?: number
-        audioBitsPerSecond?: number
-        audio?: boolean
-        outputPath: string
-      }) => {
-        // Recording uses chrome.tabCapture which requires activeTab permission.
-        // This permission is granted when the user clicks the Playwriter extension icon on a tab.
-        // Recording will work on any tab where the user has clicked the icon.
-        return startRecording({
-          page: options.page || page,
-          relayPort,
-          ...options
-        })
-      }
-
-      const stopRecordingFn = async (options: { page?: Page } = {}) => {
-        return stopRecording({ page: options.page || page, relayPort })
-      }
-
-      const isRecordingFn = async (options: { page?: Page } = {}) => {
-        return isRecording({ page: options.page || page, relayPort })
-      }
-
-      const cancelRecordingFn = async (options: { page?: Page } = {}) => {
-        return cancelRecording({ page: options.page || page, relayPort })
+      // Recording will work on any tab where the user has clicked the icon.
+      const withRecordingDefaults = <T extends { page?: Page }, R>(
+        fn: (opts: T & { relayPort: number }) => Promise<R>
+      ) => {
+        return (options: T = {} as T) => fn({ page: options.page || page, relayPort, ...options })
       }
       const self = this
 
@@ -642,10 +620,10 @@ export class PlaywrightExecutor {
         formatStylesAsText,
         getReactSource: getReactSourceFn,
         screenshotWithAccessibilityLabels: screenshotWithAccessibilityLabelsFn,
-        startRecording: startRecordingFn,
-        stopRecording: stopRecordingFn,
-        isRecording: isRecordingFn,
-        cancelRecording: cancelRecordingFn,
+        startRecording: withRecordingDefaults(startRecording),
+        stopRecording: withRecordingDefaults(stopRecording),
+        isRecording: withRecordingDefaults(isRecording),
+        cancelRecording: withRecordingDefaults(cancelRecording),
         resetPlaywright: async () => {
           const { page: newPage, context: newContext } = await self.reset()
           vmContextObj.page = newPage

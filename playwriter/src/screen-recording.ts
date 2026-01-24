@@ -3,13 +3,13 @@
  * Recording happens in the extension context, so it survives page navigation.
  * 
  * This module communicates with the relay server which forwards commands to the extension.
+ * 
+ * Note: Recording uses the first connected tab. Multi-tab recording support would require
+ * proper sessionId mapping between Playwright pages and extension tabs.
  */
 
 import type { Page } from 'playwright-core'
 import type {
-  StartRecordingBody,
-  StopRecordingParams,
-  CancelRecordingParams,
   StartRecordingResult,
   StopRecordingResult,
   IsRecordingResult,
@@ -17,7 +17,7 @@ import type {
 } from './protocol.js'
 
 export interface StartRecordingOptions {
-  /** Target page to record */
+  /** Target page to record (currently unused - records first connected tab) */
   page: Page
   /** Frame rate (default: 30) */
   frameRate?: number
@@ -34,7 +34,7 @@ export interface StartRecordingOptions {
 }
 
 export interface StopRecordingOptions {
-  /** Target page that is being recorded */
+  /** Target page that is being recorded (currently unused) */
   page: Page
   /** Relay server port (default: 19988) */
   relayPort?: number
@@ -46,20 +46,12 @@ export interface RecordingState {
   tabId?: number
 }
 
-function getSessionId(page: Page): string | undefined {
-  // The page's _guid is Playwright-internal and doesn't match the extension's sessionId (pw-tab-X).
-  // For now, we don't pass sessionId and let the extension use the first connected tab.
-  // TODO: Add proper mapping between page and extension tab sessionIds
-  return undefined
-}
-
 /**
  * Start recording the page.
  * The recording is handled by the extension, so it survives page navigation.
  */
 export async function startRecording(options: StartRecordingOptions): Promise<RecordingState> {
   const {
-    page,
     frameRate = 30,
     videoBitsPerSecond = 2500000,
     audioBitsPerSecond = 128000,
@@ -67,20 +59,11 @@ export async function startRecording(options: StartRecordingOptions): Promise<Re
     outputPath,
     relayPort = 19988,
   } = options
-
-  const sessionId = getSessionId(page)
   
   const response = await fetch(`http://127.0.0.1:${relayPort}/recording/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      sessionId,
-      frameRate,
-      videoBitsPerSecond,
-      audioBitsPerSecond,
-      audio,
-      outputPath,
-    } satisfies StartRecordingBody),
+    body: JSON.stringify({ frameRate, videoBitsPerSecond, audioBitsPerSecond, audio, outputPath }),
   })
 
   const result = await response.json() as StartRecordingResult
@@ -101,14 +84,12 @@ export async function startRecording(options: StartRecordingOptions): Promise<Re
  * Returns the path to the saved video file.
  */
 export async function stopRecording(options: StopRecordingOptions): Promise<{ path: string; duration: number; size: number }> {
-  const { page, relayPort = 19988 } = options
-
-  const sessionId = getSessionId(page)
+  const { relayPort = 19988 } = options
 
   const response = await fetch(`http://127.0.0.1:${relayPort}/recording/stop`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId } satisfies StopRecordingParams),
+    body: JSON.stringify({}),
   })
 
   const result = await response.json() as StopRecordingResult
@@ -117,43 +98,31 @@ export async function stopRecording(options: StopRecordingOptions): Promise<{ pa
     throw new Error(`Failed to stop recording: ${result.error}`)
   }
 
-  return {
-    path: result.path,
-    duration: result.duration,
-    size: result.size,
-  }
+  return { path: result.path, duration: result.duration, size: result.size }
 }
 
 /**
- * Check if recording is currently active on a page.
+ * Check if recording is currently active.
  */
 export async function isRecording(options: { page: Page; relayPort?: number }): Promise<RecordingState> {
-  const { page, relayPort = 19988 } = options
+  const { relayPort = 19988 } = options
 
-  const sessionId = getSessionId(page)
-
-  const response = await fetch(`http://127.0.0.1:${relayPort}/recording/status?sessionId=${sessionId || ''}`)
+  const response = await fetch(`http://127.0.0.1:${relayPort}/recording/status`)
   const result = await response.json() as IsRecordingResult
 
-  return {
-    isRecording: result.isRecording,
-    startedAt: result.startedAt,
-    tabId: result.tabId,
-  }
+  return { isRecording: result.isRecording, startedAt: result.startedAt, tabId: result.tabId }
 }
 
 /**
  * Cancel recording without saving.
  */
 export async function cancelRecording(options: { page: Page; relayPort?: number }): Promise<void> {
-  const { page, relayPort = 19988 } = options
-
-  const sessionId = getSessionId(page)
+  const { relayPort = 19988 } = options
 
   const response = await fetch(`http://127.0.0.1:${relayPort}/recording/cancel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId } satisfies CancelRecordingParams),
+    body: JSON.stringify({}),
   })
 
   const result = await response.json() as CancelRecordingResult

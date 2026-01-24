@@ -3,7 +3,7 @@ declare const process: { env: { PLAYWRITER_PORT: string } }
 import { createStore } from 'zustand/vanilla'
 import type { ExtensionState, ConnectionState, TabState, TabInfo, RecordingInfo } from './types'
 import type { CDPEvent, Protocol } from 'playwriter/src/cdp-types'
-import type { ExtensionCommandMessage, ExtensionResponseMessage } from 'playwriter/src/protocol'
+import type { ExtensionCommandMessage, ExtensionResponseMessage, StartRecordingParams, StopRecordingParams, IsRecordingParams, CancelRecordingParams, StartRecordingResult, ExtensionStopRecordingResult, IsRecordingResult, CancelRecordingResult } from 'playwriter/src/protocol'
 
 const RELAY_PORT = process.env.PLAYWRITER_PORT
 const RELAY_URL = `ws://127.0.0.1:${RELAY_PORT}/extension`
@@ -1089,15 +1089,7 @@ function resolveTabIdFromSessionId(sessionId?: string): number | undefined {
   return found?.tabId
 }
 
-interface StartRecordingParams {
-  sessionId?: string
-  frameRate?: number
-  audio?: boolean
-  videoBitsPerSecond?: number
-  audioBitsPerSecond?: number
-}
-
-async function handleStartRecording(params: StartRecordingParams): Promise<{ success: true; tabId: number; startedAt: number } | { success: false; error: string }> {
+async function handleStartRecording(params: StartRecordingParams): Promise<StartRecordingResult> {
   const tabId = resolveTabIdFromSessionId(params.sessionId)
   if (!tabId) {
     return { success: false, error: 'No connected tab found for recording. Click the Playwriter extension icon on the tab you want to record.' }
@@ -1177,11 +1169,7 @@ async function handleStartRecording(params: StartRecordingParams): Promise<{ suc
   }
 }
 
-interface StopRecordingParams {
-  sessionId?: string
-}
-
-async function handleStopRecording(params: StopRecordingParams): Promise<{ success: true; tabId: number; duration: number } | { success: false; error: string }> {
+async function handleStopRecording(params: StopRecordingParams): Promise<ExtensionStopRecordingResult> {
   const tabId = resolveTabIdFromSessionId(params.sessionId)
   if (!tabId) {
     return { success: false, error: 'No connected tab found' }
@@ -1225,11 +1213,7 @@ async function handleStopRecording(params: StopRecordingParams): Promise<{ succe
   }
 }
 
-interface IsRecordingParams {
-  sessionId?: string
-}
-
-async function handleIsRecording(params: IsRecordingParams): Promise<{ isRecording: boolean; tabId?: number; startedAt?: number }> {
+async function handleIsRecording(params: IsRecordingParams): Promise<IsRecordingResult> {
   const tabId = resolveTabIdFromSessionId(params.sessionId)
   if (!tabId) {
     return { isRecording: false }
@@ -1257,11 +1241,7 @@ async function handleIsRecording(params: IsRecordingParams): Promise<{ isRecordi
   }
 }
 
-interface CancelRecordingParams {
-  sessionId?: string
-}
-
-async function handleCancelRecording(params: CancelRecordingParams): Promise<{ success: boolean; error?: string }> {
+async function handleCancelRecording(params: CancelRecordingParams): Promise<CancelRecordingResult> {
   const tabId = resolveTabIdFromSessionId(params.sessionId)
   if (!tabId) {
     return { success: false, error: 'No connected tab found' }

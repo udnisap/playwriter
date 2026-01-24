@@ -100,6 +100,8 @@ export async function startPlayWriterCDPRelayServer({
     resolveStop?: (result: StopRecordingResult) => void
   }
   const activeRecordings = new Map<number, ActiveRecording>()
+  // Track which tabId just sent recordingData metadata - used to route the next binary chunk
+  let lastRecordingMetadataTabId: number | null = null
 
   const playwrightClients = new Map<string, PlaywrightClient>()
   let extensionWs: WSContext | null = null
@@ -839,12 +841,20 @@ export async function startPlayWriterCDPRelayServer({
         // Handle binary data (recording chunks)
         if (event.data instanceof ArrayBuffer || Buffer.isBuffer(event.data)) {
           const buffer = Buffer.isBuffer(event.data) ? event.data : Buffer.from(event.data)
-          // Find the recording that's waiting for data (the one we just received metadata for)
-          // The extension sends metadata first, then binary
-          for (const recording of activeRecordings.values()) {
-            recording.chunks.push(buffer)
-            logger?.log(pc.blue(`Received recording chunk for tab ${recording.tabId}: ${buffer.length} bytes (total chunks: ${recording.chunks.length})`))
-            break // Only add to the first active recording
+          // Route to the recording that just sent metadata
+          const tabId = lastRecordingMetadataTabId
+          lastRecordingMetadataTabId = null
+          
+          if (tabId !== null) {
+            const recording = activeRecordings.get(tabId)
+            if (recording) {
+              recording.chunks.push(buffer)
+              logger?.log(pc.blue(`Received recording chunk for tab ${tabId}: ${buffer.length} bytes (total chunks: ${recording.chunks.length})`))
+            } else {
+              logger?.log(pc.yellow(`Received recording chunk for unknown tab ${tabId}, ignoring`))
+            }
+          } else {
+            logger?.log(pc.yellow('Received recording chunk without preceding metadata, ignoring'))
           }
           return
         }
@@ -882,6 +892,11 @@ export async function startPlayWriterCDPRelayServer({
         } else if (message.method === 'recordingData') {
           const { tabId, final } = (message as any).params
           const recording = activeRecordings.get(tabId)
+          
+          // Track which tab sent this metadata for routing the next binary chunk
+          if (!final) {
+            lastRecordingMetadataTabId = tabId
+          }
           
           if (recording && final) {
             // This is the final marker - write all chunks to file
