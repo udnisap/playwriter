@@ -58,7 +58,7 @@ The `-s` flag specifies a session ID (required). Get one with `playwriter sessio
 
 ```bash
 # Navigate to a page
-playwriter -s 1 -e "await page.goto('https://example.com')"
+playwriter -s 1 -e "state.page = await context.newPage(); await state.page.goto('https://example.com')"
 
 # Click a button
 playwriter -s 1 -e "await page.click('button')"
@@ -232,7 +232,7 @@ await state.myPage.goto('https://example.com');
 
 **Find a page the user opened:**
 
-Sometimes the user enables playwriter on a specific tab they want you to control (e.g., they're logged into an app). Find it by URL pattern:
+Sometimes the user enables playwriter extension on a specific tab they want you to control (e.g., they're logged into an app). Find it by URL pattern:
 
 ```js
 const pages = context.pages().filter(x => x.url().includes('myapp.com'));
