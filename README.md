@@ -9,11 +9,6 @@
     <br/>
     <p>Control your browser via Playwright API. Uses extension + CLI. No context bloat.</p>
     <br/>
-    <a href="https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe">
-        <strong>Install Extension</strong>
-    </a>
-    <br/>
-    <br/>
 </div>
 
 ## Installation
@@ -67,37 +62,43 @@ console.log({ title, url: page.url() });
 '
 ```
 
+## Examples
+
+**Persist data in state:**
+```bash
+# Store data across calls
+playwriter -s 1 -e "state.users = await page.$$eval('.user', els => els.map(e => e.textContent))"
+playwriter -s 1 -e "console.log(state.users)"
+```
+
+**Intercept network requests:**
+```bash
+playwriter -s 1 -e "state.requests = []; page.on('response', r => { if (r.url().includes('/api/')) state.requests.push(r.url()) })"
+playwriter -s 1 -e "await page.click('button'); await page.waitForTimeout(1000)"
+playwriter -s 1 -e "console.log(state.requests)"
+```
+
+**Set breakpoints and debug:**
+```bash
+playwriter -s 1 -e "state.cdp = await getCDPSession({ page }); state.dbg = createDebugger({ cdp: state.cdp }); await state.dbg.enable()"
+playwriter -s 1 -e "state.scripts = await state.dbg.listScripts({ search: 'app' }); console.log(state.scripts.map(s => s.url))"
+playwriter -s 1 -e "await state.dbg.setBreakpoint({ file: state.scripts[0].url, line: 42 })"
+```
+
+**Live edit page code:**
+```bash
+playwriter -s 1 -e "state.cdp = await getCDPSession({ page }); state.editor = createEditor({ cdp: state.cdp }); await state.editor.enable()"
+playwriter -s 1 -e "await state.editor.edit({ url: 'app.js', oldString: 'DEBUG=false', newString: 'DEBUG=true' })"
+```
+
+**Screenshot with labels:**
+```bash
+playwriter -s 1 -e "await screenshotWithAccessibilityLabels({ page })"
+```
+
 ## MCP Setup
 
 See [MCP.md](./MCP.md) for MCP server configuration and remote agent setup.
-
-## Playwright API
-
-Connect programmatically:
-
-```typescript
-import { chromium } from 'playwright-core'
-import { startPlayWriterCDPRelayServer, getCdpUrl } from 'playwriter'
-
-const server = await startPlayWriterCDPRelayServer()
-const browser = await chromium.connectOverCDP(getCdpUrl())
-const page = browser.contexts()[0].pages()[0]
-
-await page.goto('https://example.com')
-await page.screenshot({ path: 'screenshot.png' })
-// Don't call browser.close() - it closes the user's Chrome
-server.close()
-```
-
-Or via CDP URL:
-
-```bash
-npx -y playwriter serve --host 127.0.0.1
-```
-
-```typescript
-const browser = await chromium.connectOverCDP('http://127.0.0.1:19988')
-```
 
 ## Visual Labels
 
@@ -201,6 +202,34 @@ playwriter -s 1 -e "await page.goto('https://example.com')"
 - **Explicit consent**: Only tabs where you clicked the extension icon
 - **Visible automation**: Chrome shows automation banner on controlled tabs
 - **No remote access**: Malicious websites cannot connect
+
+## Playwright API
+
+Connect programmatically (without CLI):
+
+```typescript
+import { chromium } from 'playwright-core'
+import { startPlayWriterCDPRelayServer, getCdpUrl } from 'playwriter'
+
+const server = await startPlayWriterCDPRelayServer()
+const browser = await chromium.connectOverCDP(getCdpUrl())
+const page = browser.contexts()[0].pages()[0]
+
+await page.goto('https://example.com')
+await page.screenshot({ path: 'screenshot.png' })
+// Don't call browser.close() - it closes the user's Chrome
+server.close()
+```
+
+Or connect to a running server:
+
+```bash
+npx -y playwriter serve --host 127.0.0.1
+```
+
+```typescript
+const browser = await chromium.connectOverCDP('http://127.0.0.1:19988')
+```
 
 ## Known Issues
 
