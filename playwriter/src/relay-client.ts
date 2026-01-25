@@ -111,7 +111,7 @@ export interface EnsureRelayServerOptions {
  * Ensures the relay server is running. Starts it if not running.
  * Optionally restarts on version mismatch.
  */
-export async function ensureRelayServer(options: EnsureRelayServerOptions = {}): Promise<void> {
+export async function ensureRelayServer(options: EnsureRelayServerOptions = {}): Promise<true | undefined> {
   const { logger, restartOnVersionMismatch = true, env: additionalEnv } = options
   const serverVersion = await getRelayServerVersion(RELAY_PORT)
 
@@ -159,12 +159,9 @@ export async function ensureRelayServer(options: EnsureRelayServerOptions = {}):
     if (newVersion) {
       logger?.log(pc.green('CDP relay server started successfully'))
       await sleep(1000)
-      return
+      return true
     }
   }
-
-
-
 
   throw new Error(`Failed to start CDP relay server after 5 seconds. Check logs at: ${LOG_FILE_PATH}`)
 }

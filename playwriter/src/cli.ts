@@ -56,18 +56,19 @@ async function executeCode(options: {
 
   // Ensure relay server is running (only for local)
   if (!host && !process.env.PLAYWRITER_HOST) {
-    await ensureRelayServer({ logger: console, env: cliRelayEnv })
-    // Wait for extension to reconnect after server (re)start
-    const connected = await waitForExtension({ logger: console, timeoutMs: 10000 })
-    if (!connected) {
-      console.error('Warning: Extension not connected. Commands may fail.')
+    const restarted = await ensureRelayServer({ logger: console, env: cliRelayEnv })
+    if (restarted){
+      const connected = await waitForExtension({ logger: console, timeoutMs: 10000 })
+      if (!connected) {
+        console.error('Warning: Extension not connected. Commands may fail.')
+      }
     }
   }
 
   // Session is required
   if (!sessionId) {
     console.error('Error: -s/--session is required.')
-    console.error('Run `playwriter session new` to get a session ID.')
+    console.error('Always run `playwriter session new` first to get a session ID to use.')
     process.exit(1)
   }
 
@@ -154,26 +155,26 @@ cli
 
     try {
       const res = await fetch(`${serverUrl}/cli/sessions`)
-      const { sessions } = await res.json() as { 
-        sessions: Array<{ 
+      const { sessions } = await res.json() as {
+        sessions: Array<{
           id: string
           stateKeys: string[]
-        }> 
+        }>
       }
-      
+
       if (sessions.length === 0) {
         console.log('No active sessions')
         return
       }
-      
+
       // Calculate column widths for aligned table
       const idWidth = Math.max(2, ...sessions.map((s) => { return String(s.id).length }))
       const stateWidth = Math.max(10, ...sessions.map((s) => { return s.stateKeys.join(', ').length || 1 }))
-      
+
       // Header
       console.log('ID'.padEnd(idWidth) + '  ' + 'State Keys')
       console.log('-'.repeat(idWidth + stateWidth + 2))
-      
+
       // Rows
       for (const session of sessions) {
         const stateStr = session.stateKeys.length > 0 ? session.stateKeys.join(', ') : '-'
