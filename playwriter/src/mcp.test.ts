@@ -12,12 +12,14 @@ import { getCDPSessionForPage } from './cdp-session.js'
 import { Debugger } from './debugger.js'
 import { Editor } from './editor.js'
 import type { CDPCommand } from './cdp-types.js'
-import { setupTestContext, cleanupTestContext, getExtensionServiceWorker, type TestContext } from './test-utils.js'
+import { setupTestContext, cleanupTestContext, getExtensionServiceWorker, createSseServer, type TestContext, withTimeout } from './test-utils.js'
+import { screenshotWithAccessibilityLabels } from './aria-snapshot.js'
 
 declare const window: any
 declare const document: any
 
 const TEST_PORT = 19987
+
 
 function js(strings: TemplateStringsArray, ...values: any[]): string {
     return strings.reduce(
@@ -25,6 +27,7 @@ function js(strings: TemplateStringsArray, ...values: any[]): string {
         '',
     )
 }
+
 
 declare global {
     var toggleExtensionForActiveTab: () => Promise<{ isConnected: boolean; state: ExtensionState }>;
@@ -2347,7 +2350,7 @@ describe('MCP Server Tests', () => {
         // Verify the image is valid JPEG by checking base64
         const buffer = Buffer.from(imageContent.data, 'base64')
         const dimensions = imageSize(buffer)
-        
+
         // Get actual viewport size from page
         const viewport = await page.evaluate(() => ({
             innerWidth: window.innerWidth,
@@ -2357,13 +2360,14 @@ describe('MCP Server Tests', () => {
         }))
         console.log('Screenshot dimensions:', dimensions.width, 'x', dimensions.height)
         console.log('Window viewport:', viewport)
-        
+
         expect(dimensions.type).toBe('jpg')
         expect(dimensions.width).toBeGreaterThan(0)
         expect(dimensions.height).toBeGreaterThan(0)
 
         await page.close()
     }, 60000)
+
 
     it('should get clean HTML with getCleanHTML', async () => {
         const browserContext = getBrowserContext()
@@ -2573,7 +2577,7 @@ describe('MCP Server Tests', () => {
         const listJson = await listRes.json() as Array<{ url?: string }>
         expect(Array.isArray(listJson)).toBe(true)
         expect(listJson.length).toBeGreaterThan(0)
-        
+
         // Find the example.com page (there may be other pages like about:blank)
         const examplePage = listJson.find((t) => t.url?.includes('example.com'))
         expect(examplePage).toBeDefined()
@@ -3650,6 +3654,114 @@ describe('Service Worker Target Tests', () => {
         cdpSession.close()
         await browser.close()
         await page.close()
+    }, 60000)
+
+    it('should stream SSE without waiting for response end', async () => {
+        const browserContext = getBrowserContext()
+        const serviceWorker = await withTimeout({
+            promise: getExtensionServiceWorker(browserContext),
+            timeoutMs: 5000,
+            errorMessage: 'getExtensionServiceWorker timed out',
+        })
+        const sseServer = await withTimeout({
+            promise: createSseServer(),
+            timeoutMs: 5000,
+            errorMessage: 'createSseServer timed out',
+        })
+        let page: Awaited<ReturnType<typeof browserContext.newPage>> | null = null
+        let browser: Awaited<ReturnType<typeof chromium.connectOverCDP>> | null = null
+
+        try {
+            page = await withTimeout({
+                promise: browserContext.newPage(),
+                timeoutMs: 5000,
+                errorMessage: 'newPage timed out',
+            })
+            await withTimeout({
+                promise: page.goto(`${sseServer.baseUrl}/`),
+                timeoutMs: 5000,
+                errorMessage: 'page.goto timed out',
+            })
+            await page.bringToFront()
+
+            await withTimeout({
+                promise: serviceWorker.evaluate(async () => {
+                    await globalThis.toggleExtensionForActiveTab()
+                }),
+                timeoutMs: 5000,
+                errorMessage: 'toggleExtensionForActiveTab timed out',
+            })
+            await new Promise((resolve) => {
+                setTimeout(resolve, 100)
+            })
+
+            browser = await withTimeout({
+                promise: chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT })),
+                timeoutMs: 5000,
+                errorMessage: 'connectOverCDP timed out',
+            })
+            const cdpPage = browser.contexts()[0].pages().find((p) => {
+                return p.url().startsWith(sseServer.baseUrl)
+            })
+            expect(cdpPage).toBeDefined()
+
+            await cdpPage!.evaluate(() => {
+                return window.startSse()
+            })
+            await withTimeout({
+                promise: cdpPage!.waitForFunction(() => {
+                    return window.__sseMessages.length > 0
+                }, { timeout: 5000 }),
+                timeoutMs: 7000,
+                errorMessage: 'SSE message not received in time',
+            })
+
+            const firstMessage = await cdpPage!.evaluate(() => {
+                return window.__sseMessages[0]
+            })
+            expect(firstMessage).toBe('hello')
+
+            const sseState = sseServer.getState()
+            expect(sseState.connected).toBe(true)
+            expect(sseState.finished).toBe(false)
+            expect(sseState.closed).toBe(false)
+            expect(sseState.writeCount).toBeGreaterThan(0)
+
+            const readyState = await cdpPage!.evaluate(() => {
+                if (!window.__sseSource) {
+                    return -1
+                }
+                return window.__sseSource.readyState
+            })
+            expect(readyState).toBe(1)
+
+            await cdpPage!.evaluate(() => {
+                window.stopSse()
+            })
+            await new Promise((resolve) => {
+                setTimeout(resolve, 100)
+            })
+        } finally {
+            if (browser) {
+                await withTimeout({
+                    promise: browser.close(),
+                    timeoutMs: 5000,
+                    errorMessage: 'browser.close timed out',
+                })
+            }
+            if (page) {
+                await withTimeout({
+                    promise: page.close(),
+                    timeoutMs: 5000,
+                    errorMessage: 'page.close timed out',
+                })
+            }
+            await withTimeout({
+                promise: sseServer.close(),
+                timeoutMs: 5000,
+                errorMessage: 'sseServer.close timed out',
+            })
+        }
     }, 60000)
 })
 

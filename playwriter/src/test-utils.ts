@@ -1,5 +1,7 @@
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
+import http from 'node:http'
+import net from 'node:net'
 import { chromium, BrowserContext } from 'playwright-core'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -100,4 +102,168 @@ export async function cleanupTestContext(ctx: TestContext | null, cleanup?: (() 
   if (cleanup) {
     await cleanup()
   }
+}
+
+export type SseServerState = {
+  connected: boolean
+  finished: boolean
+  writeCount: number
+  closed: boolean
+}
+
+export type SseServer = {
+  baseUrl: string
+  getState: () => SseServerState
+  close: () => Promise<void>
+}
+
+export async function createSseServer(): Promise<SseServer> {
+  let sseResponse: http.ServerResponse | null = null
+  let sseFinished = false
+  let sseClosed = false
+  let sseWriteCount = 0
+  let sseInterval: NodeJS.Timeout | null = null
+  const openResponses: Set<http.ServerResponse> = new Set()
+  const openSockets: Set<net.Socket> = new Set()
+
+  const server = http.createServer((req, res) => {
+    if (req.url === '/') {
+      res.writeHead(200, { 'Content-Type': 'text/html' })
+      res.end(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>SSE Test</title>
+  </head>
+  <body>
+    <script>
+      window.__sseMessages = [];
+      window.__sseOpen = false;
+      window.__sseError = null;
+      window.startSse = function () {
+        const source = new EventSource('/sse');
+        window.__sseSource = source;
+        source.onopen = function () {
+          window.__sseOpen = true;
+        };
+        source.onmessage = function (event) {
+          window.__sseMessages.push(event.data);
+        };
+        source.onerror = function () {
+          window.__sseError = 'SSE error';
+        };
+        return true;
+      };
+      window.stopSse = function () {
+        if (window.__sseSource) {
+          window.__sseSource.close();
+        }
+      };
+    </script>
+  </body>
+</html>`)
+      return
+    }
+
+    if (req.url === '/sse') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+      })
+      res.write('retry: 1000\n\n')
+      res.write('data: hello\n\n')
+      sseResponse = res
+      sseWriteCount += 1
+      openResponses.add(res)
+
+      res.on('finish', () => {
+        sseFinished = true
+      })
+      res.on('close', () => {
+        sseClosed = true
+        openResponses.delete(res)
+        if (sseInterval) {
+          clearInterval(sseInterval)
+          sseInterval = null
+        }
+      })
+
+      sseInterval = setInterval(() => {
+        res.write('data: ping\n\n')
+        sseWriteCount += 1
+      }, 200)
+      return
+    }
+
+    res.writeHead(404)
+    res.end('Not found')
+  })
+
+  server.on('connection', (socket) => {
+    openSockets.add(socket)
+    socket.on('close', () => {
+      openSockets.delete(socket)
+    })
+  })
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      resolve()
+    })
+  })
+
+  const address = server.address()
+  if (!address || typeof address === 'string') {
+    throw new Error('Failed to bind SSE server')
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    getState: () => ({
+      connected: sseResponse !== null,
+      finished: sseFinished,
+      closed: sseClosed,
+      writeCount: sseWriteCount,
+    }),
+    close: async () => {
+      for (const response of openResponses) {
+        response.destroy()
+      }
+      for (const socket of openSockets) {
+        socket.destroy()
+      }
+      if (sseInterval) {
+        clearInterval(sseInterval)
+        sseInterval = null
+      }
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve()
+        })
+      })
+    }
+  }
+}
+
+export async function withTimeout<T>({ promise, timeoutMs, errorMessage }: { promise: Promise<T>; timeoutMs: number; errorMessage: string }): Promise<T> {
+    return await new Promise<T>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+            reject(new Error(errorMessage))
+        }, timeoutMs)
+
+        promise
+            .then((value) => {
+                clearTimeout(timeoutId)
+                resolve(value)
+            })
+            .catch((error) => {
+                clearTimeout(timeoutId)
+                reject(error)
+            })
+    })
 }
