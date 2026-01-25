@@ -551,6 +551,18 @@ export interface AriaSnapshotResult {
   getRefStringForLocator: (locator: Locator | ElementHandle) => Promise<string | null>
 }
 
+interface ElementLike {
+  tagName: string
+  textContent: string | null
+  getAttribute: (name: string) => string | null
+  hasAttribute: (name: string) => boolean
+}
+
+interface InputElementLike extends ElementLike {
+  type?: string
+  placeholder?: string
+}
+
 const LABELS_CONTAINER_ID = '__playwriter_labels__'
 
 // Roles that represent interactive elements (clickable, typeable) and media elements
@@ -646,7 +658,10 @@ const CONTAINER_STYLES = css`
  * // refs[0].ref is e.g. "e5" - use page.locator('aria-ref=e5') to select
  * ```
  */
-export async function getAriaSnapshot({ page }: { page: Page }): Promise<AriaSnapshotResult> {
+export async function getAriaSnapshot({ page, refFilter }: {
+  page: Page
+  refFilter?: (info: { role: string; name: string }) => boolean
+}): Promise<AriaSnapshotResult> {
   const snapshotMethod = (page as any)._snapshotForAI
   if (!snapshotMethod) {
     throw new Error('_snapshotForAI not available. Ensure you are using Playwright.')
@@ -657,42 +672,117 @@ export async function getAriaSnapshot({ page }: { page: Page }): Promise<AriaSna
   const rawStr = typeof snapshot === 'string' ? snapshot : (snapshot.full || JSON.stringify(snapshot, null, 2))
   const snapshotStr = rawStr.toWellFormed?.() ?? rawStr
 
+  const snapshotRefInfo = extractRefInfoFromSnapshot(snapshotStr)
+  const snapshotRefs = [...snapshotRefInfo.entries()]
+    .filter(([_, info]) => !refFilter || refFilter(info))
+    .map(([ref]) => ref)
+
   // Discover refs by probing aria-ref=e1, e2, e3... until 10 consecutive misses
   const refToElement = new Map<string, { role: string; name: string }>()
   const refHandles: Array<{ ref: string; handle: ElementHandle }> = []
 
-  let consecutiveMisses = 0
-  let refNum = 1
-
-  while (consecutiveMisses < 10) {
-    const ref = `e${refNum++}`
+  const fetchRefInfo = async (ref: string): Promise<{ ref: string; handle: ElementHandle; info: { role: string; name: string } } | null> => {
     try {
       const locator = page.locator(`aria-ref=${ref}`)
-      if (await locator.count() === 1) {
-        consecutiveMisses = 0
-        const [info, handle] = await Promise.all([
-          locator.evaluate((el: any) => ({
-            role: el.getAttribute('role') || {
-              a: el.hasAttribute('href') ? 'link' : 'generic',
-              button: 'button', input: { button: 'button', checkbox: 'checkbox', radio: 'radio',
-                text: 'textbox', search: 'searchbox', number: 'spinbutton', range: 'slider',
-              }[el.type] || 'textbox', select: 'combobox', textarea: 'textbox', img: 'img',
-              nav: 'navigation', main: 'main', header: 'banner', footer: 'contentinfo',
-            }[el.tagName.toLowerCase()] || 'generic',
-            name: el.getAttribute('aria-label') || el.textContent?.trim() || el.placeholder || '',
-          })),
-          locator.elementHandle({ timeout: 1000 }),
-        ])
-        refToElement.set(ref, info)
-        if (handle) {
-          refHandles.push({ ref, handle })
-        }
-      } else {
-        consecutiveMisses++
+      const handle = await locator.elementHandle({ timeout: 1000 })
+      if (!handle) {
+        return null
       }
+      const info = await handle.evaluate((el) => {
+        const element = el as ElementLike
+        const tagName = element.tagName.toLowerCase()
+        const roleAttribute = element.getAttribute('role')
+        const inputElement = element as InputElementLike
+        const inputType = inputElement.type || ''
+        const placeholder = inputElement.placeholder || ''
+        const role = roleAttribute || {
+          a: element.hasAttribute('href') ? 'link' : 'generic',
+          button: 'button',
+          input: {
+            button: 'button',
+            checkbox: 'checkbox',
+            radio: 'radio',
+            text: 'textbox',
+            search: 'searchbox',
+            number: 'spinbutton',
+            range: 'slider',
+          }[inputType] || 'textbox',
+          select: 'combobox',
+          textarea: 'textbox',
+          img: 'img',
+          nav: 'navigation',
+          main: 'main',
+          header: 'banner',
+          footer: 'contentinfo',
+        }[tagName] || 'generic'
+        const name = element.getAttribute('aria-label') || element.textContent?.trim() || placeholder || ''
+        return { role, name }
+      })
+      return { ref, handle, info }
     } catch {
-      consecutiveMisses++
+      return null
     }
+  }
+
+  const fetchRefHandle = async (ref: string): Promise<{ ref: string; handle: ElementHandle } | null> => {
+    try {
+      const locator = page.locator(`aria-ref=${ref}`)
+      const handle = await locator.elementHandle({ timeout: 1000 })
+      if (!handle) {
+        return null
+      }
+      return { ref, handle }
+    } catch {
+      return null
+    }
+  }
+
+  const addRefInfo = ({ ref, handle, info }: { ref: string; handle: ElementHandle; info: { role: string; name: string } }) => {
+    refToElement.set(ref, info)
+    refHandles.push({ ref, handle })
+  }
+
+  const probeRefsSequentially = async () => {
+    let consecutiveMisses = 0
+    let refNum = 1
+    while (consecutiveMisses < 10) {
+      const ref = `e${refNum++}`
+      const result = await fetchRefInfo(ref)
+      if (!result) {
+        consecutiveMisses++
+        continue
+      }
+      consecutiveMisses = 0
+      addRefInfo(result)
+    }
+  }
+
+  const probeRefsFromSnapshot = async (refs: string[]) => {
+    const concurrency = 20
+    const chunks = refs.reduce((acc, ref, index) => {
+      const chunkIndex = Math.floor(index / concurrency)
+      if (!acc[chunkIndex]) {
+        acc[chunkIndex] = []
+      }
+      acc[chunkIndex].push(ref)
+      return acc
+    }, [] as string[][])
+
+    await chunks.reduce(async (previous, chunk) => {
+      await previous
+      const results = await Promise.all(chunk.map(async (ref) => fetchRefHandle(ref)))
+      const successfulResults = results.filter((result): result is { ref: string; handle: ElementHandle } => result !== null)
+      successfulResults.map((result) => {
+        const info = snapshotRefInfo.get(result.ref) || { role: 'generic', name: '' }
+        addRefInfo({ ...result, info })
+      })
+    }, Promise.resolve())
+  }
+
+  if (snapshotRefs.length > 0) {
+    await probeRefsFromSnapshot(snapshotRefs)
+  } else {
+    await probeRefsSequentially()
   }
 
   // Find refs for multiple locators in a single evaluate call
@@ -738,6 +828,21 @@ export async function getAriaSnapshot({ page }: { page: Page }): Promise<AriaSna
   }
 }
 
+function extractRefInfoFromSnapshot(snapshot: string): Map<string, { role: string; name: string }> {
+  const lines = snapshot.split('\n')
+  return lines.reduce((map, line) => {
+    if (!line.trim()) {
+      return map
+    }
+    const parsed = parseSnapshotLine(line)
+    if (!parsed.ref || map.has(parsed.ref)) {
+      return map
+    }
+    map.set(parsed.ref, { role: parsed.role, name: parsed.name ?? '' })
+    return map
+  }, new Map<string, { role: string; name: string }>())
+}
+
 /**
  * Show Vimium-style labels on interactive elements.
  * Labels are yellow badges positioned above each element showing the aria ref (e.g., "e1", "e2").
@@ -758,22 +863,26 @@ export async function getAriaSnapshot({ page }: { page: Page }): Promise<AriaSna
  * // Labels auto-hide after 30 seconds, or call hideAriaRefLabels() manually
  * ```
  */
-export async function showAriaRefLabels({ page, interactiveOnly = true }: {
+export async function showAriaRefLabels({ page, interactiveOnly = true, logger }: {
   page: Page
   interactiveOnly?: boolean
+  logger?: { info?: (...args: unknown[]) => void; error?: (...args: unknown[]) => void }
 }): Promise<{
   snapshot: string
   labelCount: number
 }> {
-  const { snapshot, refHandles, refToElement } = await getAriaSnapshot({ page })
+  const getSnapshotStart = Date.now()
+  const { snapshot, refHandles, refToElement } = await getAriaSnapshot({
+    page,
+    refFilter: interactiveOnly ? (info) => { return INTERACTIVE_ROLES.has(info.role) } : undefined,
+  })
+  const log = logger?.info ?? logger?.error
+  if (log) {
+    log(`getAriaSnapshot: ${Date.now() - getSnapshotStart}ms`)
+  }
 
   // Filter to only interactive elements if requested
-  const filteredRefs = interactiveOnly
-    ? refHandles.filter(({ ref }) => {
-        const info = refToElement.get(ref)
-        return info && INTERACTIVE_ROLES.has(info.role)
-      })
-    : refHandles
+  const filteredRefs = refHandles
 
   // Build refs with role info for color coding
   const refsWithRoles = filteredRefs.map(({ ref, handle }) => ({
@@ -1088,10 +1197,14 @@ export async function screenshotWithAccessibilityLabels({ page, interactiveOnly 
   page: Page
   interactiveOnly?: boolean
   collector: ScreenshotResult[]
-  logger?: { error: (...args: unknown[]) => void }
+  logger?: { info?: (...args: unknown[]) => void; error?: (...args: unknown[]) => void }
 }): Promise<void> {
-  // Show labels and get snapshot
-  const { snapshot, labelCount } = await showAriaRefLabels({ page, interactiveOnly })
+  const showLabelsStart = Date.now()
+  const { snapshot, labelCount } = await showAriaRefLabels({ page, interactiveOnly, logger })
+  const log = logger?.info ?? logger?.error
+  if (log) {
+    log(`showAriaRefLabels: ${Date.now() - showLabelsStart}ms`)
+  }
 
   // Generate unique filename with timestamp
   const timestamp = Date.now()
@@ -1130,7 +1243,7 @@ export async function screenshotWithAccessibilityLabels({ page, interactiveOnly 
   // Resize with sharp if available, otherwise use clipped raw buffer
   const buffer = await (async () => {
     if (!sharp) {
-      logger?.error('[playwriter] sharp not available, using clipped screenshot (max', MAX_DIMENSION, 'px)')
+      logger?.error?.('[playwriter] sharp not available, using clipped screenshot (max', MAX_DIMENSION, 'px)')
       return rawBuffer
     }
     try {
@@ -1144,7 +1257,7 @@ export async function screenshotWithAccessibilityLabels({ page, interactiveOnly 
         .jpeg({ quality: 80 })
         .toBuffer()
     } catch (err) {
-      logger?.error('[playwriter] sharp resize failed, using raw buffer:', err)
+      logger?.error?.('[playwriter] sharp resize failed, using raw buffer:', err)
       return rawBuffer
     }
   })()
