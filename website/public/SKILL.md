@@ -421,6 +421,41 @@ await screenshotWithAccessibilityLabels({ page });
 
 Labels are color-coded: yellow=links, orange=buttons, coral=inputs, pink=checkboxes, peach=sliders, salmon=menus, amber=tabs.
 
+**startRecording / stopRecording** - record the page as a video at native FPS (30-60fps). Uses `chrome.tabCapture` in the extension context, so **recording survives page navigation**. Video is saved as WebM.
+
+**Note**: Recording requires the user to have clicked the Playwriter extension icon on the tab. This grants `activeTab` permission needed for `chrome.tabCapture`. Recording works on tabs where the icon was clicked - if you need to record a new tab, ask the user to click the icon on it first.
+
+```js
+// Start recording - outputPath must be specified upfront
+await startRecording({ 
+  page, 
+  outputPath: './recording.webm',
+  frameRate: 30,        // default: 30
+  audio: false,         // default: false (tab audio)
+  videoBitsPerSecond: 2500000  // 2.5 Mbps
+});
+
+// Navigate around - recording continues!
+await page.click('a');
+await page.waitForLoadState('domcontentloaded');
+await page.goBack();
+
+// Stop and get result
+const { path, duration, size } = await stopRecording({ page });
+console.log(`Saved ${size} bytes, duration: ${duration}ms`);
+```
+
+Additional recording utilities:
+```js
+// Check if recording is active
+const { isRecording, startedAt } = await isRecording({ page });
+
+// Cancel recording without saving
+await cancelRecording({ page });
+```
+
+**Key difference from getDisplayMedia**: This approach uses `chrome.tabCapture` which runs in the extension context, not the page. The recording persists across navigations because the extension holds the `MediaRecorder`, not the page's JavaScript context.
+
 ## pinned elements
 
 Users can right-click → "Copy Playwriter Element Reference" to store elements in `globalThis.playwriterPinnedElem1` (increments for each pin). The reference is copied to clipboard:
@@ -507,3 +542,9 @@ Examples of what playwriter can do:
 - Use visual screenshots to understand complex layouts like image grids, dashboards, or maps
 - Debug issues by collecting logs and controlling the page simultaneously
 - Handle popups, downloads, iframes, and dialog boxes
+- Record videos of browser sessions that survive page navigation
+
+
+## debugging playwriter issues
+
+if some internal critical error happens you can read your own relay ws logs to understand the issue, it will show logs from extension, mcp and ws server together. then you can create a gh issue using `gh issue create -R remorses/playwriter --title title --body body`. ask for user confirmation before doing this.
