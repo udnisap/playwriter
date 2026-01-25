@@ -28,6 +28,109 @@ write code that will run on all platforms: mac, linux, windows. especially aroun
 
 ## development
 
+### running MCP locally
+
+to test the MCP server with local changes, add it to your MCP client config with tsx:
+
+```json
+{
+  "mcpServers": {
+    "playwriter": {
+      "command": "tsx",
+      "args": ["/path/to/playwriter/playwriter/src/mcp.ts"]
+    }
+  }
+}
+```
+
+make sure you have tsx installed globally: `pnpm i -g tsx`
+
+### running CLI locally
+
+to test CLI changes without publishing:
+
+```bash
+cd playwriter
+tsx src/cli.ts -e "await page.goto('https://example.com')"
+tsx src/cli.ts -e "console.log(await accessibilitySnapshot({ page }))"
+tsx src/cli.ts session new
+tsx src/cli.ts -s 1 -e "await page.click('button')"
+```
+
+### reloading extension during development
+
+after making changes to extension code:
+
+```bash
+cd extension
+pnpm reload  # builds and opens chrome://extensions page
+```
+
+then click the reload button on the extension card in Chrome. the extension has a stable dev ID (`pebbngnfojnignonigcnkdilknapkgid`) so you don't need to reconfigure anything.
+
+### testing
+
+run `cd playwriter && pnpm test` to test the extension and mcp and CDP directly in a chrome instance automated. with the extension loaded too.
+
+```bash
+cd playwriter
+pnpm test              # run all tests (takes ~90 seconds)
+pnpm test -t "screenshot"  # run specific test by name
+pnpm test:watch        # watch mode
+```
+
+the test script passes `-u` to update inline snapshots automatically.
+
+#### test setup
+
+tests use these utilities from `test-utils.ts`:
+
+```ts
+// setup browser with extension loaded + relay server
+const testCtx = await setupTestContext({ 
+  port: 19987, 
+  tempDirPrefix: 'pw-test-',
+  toggleExtension: true  // creates initial page with extension enabled
+})
+
+// get extension service worker to call extension functions
+const serviceWorker = await getExtensionServiceWorker(testCtx.browserContext)
+
+// toggle extension on current tab
+await serviceWorker.evaluate(async () => {
+  await globalThis.toggleExtensionForActiveTab()
+})
+
+// cleanup after tests
+await cleanupTestContext(testCtx, cleanup)
+```
+
+to test MCP tools, create an MCP client:
+
+```ts
+import { createMCPClient } from './mcp-client.js'
+
+const { client, cleanup } = await createMCPClient({ port: 19987 })
+const result = await client.callTool({
+  name: 'execute',
+  arguments: { code: 'await page.goto("https://example.com")' }
+})
+```
+
+#### adding tests
+
+tests live in `playwriter/src/*.test.ts`. add new tests to existing describe blocks or create new test files.
+
+each test should reset the extension connection. NEVER call `browser.close()` in tests.
+
+remember: toggling extension on a tab adds it to available pages. if you toggle then call `context.newPage()`, you'll have 2 pages.
+
+IMPORTANT: set bash timeout to at least 90000ms when running `pnpm test`
+
+to debug test failures, inspect the relay server log file: `playwriter logfile` (e.g. `/tmp/playwriter/relay-server.log`). contains extension, MCP and WS server logs with all CDP events.
+
+### project structure
+
 extension/ contains the chrome extension code. you need to run `pnpm build` to make it ready to be loaded in chrome. the extension folder chrome will use is extension/dist
 
 when I ask you to release extension run package.json release script
@@ -50,24 +153,6 @@ curl -sL https://raw.githubusercontent.com/ChromeDevTools/devtools-protocol/mast
 ```
 
 you can list other files in that folder on github to read more if you need to control things like DOM, performance, etc
-
-## testing
-
-run `cd playwriter && pnpm test` to test the extension and mcp and CDP directly in a chrome instance automated. with the extension loaded too.
-
-the test script will also pass -u to update some inline snapshots used
-
-you can run singular tests with `-t "testname"`
-
-each test() block should reset the extension connection to make sure tests are independent.
-
-NEVER call browser.close() in tests or any other code that interacts with our CDP endpoint
-
-remember that every time the extension is activated in a tab that tab gets added to the available pages. so if you toggle the extension and then do .newPage() there will be 2 pages, not 1.
-
-to debug server or extension issues you can inspect the relay server log file. run `playwriter logfile` to get the path (it's in the system temp directory, e.g. `/tmp/playwriter/relay-server.log` on Linux/macOS). this file contains logs from the extension, MCP and WS server together, with all CDP events. the file is recreated every time the server starts and appended in real time. use rg to only read relevant lines because it can get quite long
-
-IMPORTANT: `pnpm test` will take about 1 minute or more so set a timeout of at least 90000ms when running the pnpm test bash command
 
 ## changelogs
 
