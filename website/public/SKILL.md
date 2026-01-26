@@ -99,7 +99,13 @@ playwriter logfile  # prints the log file path
 # typically: /tmp/playwriter/relay-server.log (Linux/macOS) or %TEMP%\playwriter\relay-server.log (Windows)
 ```
 
-The log file contains logs from the extension, MCP and WS server together with all CDP events. The file is recreated every time the server starts. For debugging internal playwriter errors, read this file with grep/rg to find relevant lines.
+The relay log contains logs from the extension, MCP and WS server. A separate CDP JSONL log is created alongside it (see `playwriter logfile`) with all CDP commands/responses and events, with long strings truncated. Both files are recreated every time the server starts. For debugging internal playwriter errors, read these files with grep/rg to find relevant lines.
+
+Example: summarize CDP traffic counts by direction + method:
+
+```bash
+jq -r '.direction + "\t" + (.message.method // "response")' /tmp/playwriter/cdp.jsonl | uniq -c
+```
 
 If you find a bug, you can create a gh issue using `gh issue create -R remorses/playwriter --title title --body body`. Ask for user confirmation before doing this.
 
