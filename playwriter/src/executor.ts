@@ -58,7 +58,8 @@ const EXTENSION_NOT_CONNECTED_ERROR = `The Playwriter Chrome extension is not co
 1. Installed the extension: https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe
 2. Clicked the extension icon on a tab to enable it (or refreshed the page if just installed)`
 
-const NO_TABS_ENABLED_ERROR = `No browser tabs have Playwriter enabled. Click the extension icon on at least one tab to enable it.`
+const NO_PAGES_AVAILABLE_ERROR =
+  'No Playwright pages are available. Enable Playwriter on a tab or set PLAYWRITER_AUTO_ENABLE=1 to auto-create one.'
 
 const MAX_LOGS_PER_PAGE = 5000
 
@@ -279,13 +280,8 @@ export class PlaywrightExecutor {
       this.setupPageConsoleListener(page)
     })
 
-    const pages = context.pages()
-    if (pages.length === 0) {
-      throw new Error(NO_TABS_ENABLED_ERROR)
-    }
-    const page = pages[0]
-
     context.pages().forEach((p) => this.setupPageConsoleListener(p))
+    const page = await this.ensurePageForContext({ context, timeout: 10000 })
 
     await this.preserveSystemColorScheme(context)
     await this.setDeviceScaleFactorForMacOS(context)
@@ -306,17 +302,22 @@ export class PlaywrightExecutor {
     if (this.browser) {
       const contexts = this.browser.contexts()
       if (contexts.length > 0) {
-        const pages = contexts[0].pages().filter((p) => !p.isClosed())
+        const context = contexts[0]
+        this.context = context
+        const pages = context.pages().filter((p) => !p.isClosed())
         if (pages.length > 0) {
           const page = pages[0]
           await page.waitForLoadState('domcontentloaded', { timeout }).catch(() => {})
           this.page = page
           return page
         }
+        const page = await this.ensurePageForContext({ context, timeout })
+        this.page = page
+        return page
       }
     }
 
-    throw new Error(NO_TABS_ENABLED_ERROR)
+    throw new Error(NO_PAGES_AVAILABLE_ERROR)
   }
 
   async reset(): Promise<{ page: Page; context: BrowserContext }> {
@@ -353,13 +354,8 @@ export class PlaywrightExecutor {
       this.setupPageConsoleListener(page)
     })
 
-    const pages = context.pages()
-    if (pages.length === 0) {
-      throw new Error(NO_TABS_ENABLED_ERROR)
-    }
-    const page = pages[0]
-
     context.pages().forEach((p) => this.setupPageConsoleListener(p))
+    const page = await this.ensurePageForContext({ context, timeout: 10000 })
 
     await this.preserveSystemColorScheme(context)
     await this.setDeviceScaleFactorForMacOS(context)
@@ -682,6 +678,29 @@ export class PlaywrightExecutor {
         isError: true,
       }
     }
+  }
+
+  // When extension is connected but has no pages, auto-create only if PLAYWRITER_AUTO_ENABLE is set.
+  private async ensurePageForContext(options: { context: BrowserContext; timeout: number }): Promise<Page> {
+    const { context, timeout } = options
+    const pages = context.pages().filter((p) => !p.isClosed())
+    if (pages.length > 0) {
+      return pages[0]
+    }
+
+    const extensionStatus = await this.checkExtensionStatus()
+    if (!extensionStatus.connected) {
+      throw new Error(EXTENSION_NOT_CONNECTED_ERROR)
+    }
+
+    if (!process.env.PLAYWRITER_AUTO_ENABLE) {
+      throw new Error(NO_PAGES_AVAILABLE_ERROR)
+    }
+
+    const page = await context.newPage()
+    this.setupPageConsoleListener(page)
+    await page.waitForLoadState('domcontentloaded', { timeout }).catch(() => {})
+    return page
   }
 
   /** Get info about current connection state */
