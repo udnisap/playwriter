@@ -1355,6 +1355,36 @@ describe('MCP Server Tests', () => {
         await page.close()
     }, 60000)
 
+    it('should navigate to youtube without hanging', async () => {
+        const browserContext = getBrowserContext()
+        const serviceWorker = await getExtensionServiceWorker(browserContext)
+
+        const page = await browserContext.newPage()
+        await page.goto('about:blank')
+        await page.bringToFront()
+
+        await serviceWorker.evaluate(async () => {
+            await globalThis.toggleExtensionForActiveTab()
+        })
+
+        await new Promise(r => setTimeout(r, 100))
+
+        const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
+        const cdpPage = browser.contexts()[0].pages().find(p => p.url().includes('about:'))
+        expect(cdpPage).toBeDefined()
+
+        const response = await cdpPage!.goto('https://www.youtube.com', { waitUntil: 'load', timeout: 5000 })
+        const currentUrl = cdpPage!.url()
+        const responseUrl = response?.url() ?? ''
+
+        expect(responseUrl).toContain('youtube')
+        expect(currentUrl).toContain('youtube')
+        expect(await cdpPage!.evaluate(() => document.readyState)).not.toBe('loading')
+
+        await browser.close()
+        await page.close()
+    }, 60000)
+
     it('should maintain correct page.url() with iframe-heavy pages', async () => {
         const browserContext = getBrowserContext()
         const serviceWorker = await getExtensionServiceWorker(browserContext)
