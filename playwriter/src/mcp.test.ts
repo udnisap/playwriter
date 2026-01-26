@@ -118,13 +118,9 @@ describe('MCP Server Tests', () => {
           [
             {
               "text": "Console output:
-          [log] Page title: Example Domain
+          [log] 'Page title:' 'Example Domain'
 
-          Return value:
-          {
-            "url": "https://example.com/",
-            "title": "Example Domain"
-          }",
+          [return value] { url: 'https://example.com/', title: 'Example Domain' }",
               "type": "text",
             },
           ]
@@ -658,7 +654,7 @@ describe('MCP Server Tests', () => {
         console.log('After disconnect:', afterDisconnectOutput)
         // After disconnect, there are no pages - so we expect an error
         expect((afterDisconnect as any).isError).toBe(true)
-        expect(afterDisconnectOutput).toContain('No browser tabs have Playwriter enabled')
+        expect(afterDisconnectOutput).toContain('No Playwright pages are available')
 
         // 4. Re-enable extension on the same page
         console.log('Re-enabling extension...')
@@ -1726,68 +1722,62 @@ describe('MCP Server Tests', () => {
         expect(stylesResult.isError).toBeFalsy()
         const stylesText = (stylesResult.content as any)[0]?.text || ''
         expect(stylesText).toMatchInlineSnapshot(`
-          "Return value:
-          {
-            "element": "button#main-btn.btn",
-            "inlineStyle": {
-              "font-weight": "bold"
-            },
-            "rules": [
+          "[return value] {
+            element: 'button#main-btn.btn',
+            inlineStyle: { 'font-weight': 'bold' },
+            rules: [
               {
-                "selector": ".btn",
-                "source": null,
-                "origin": "regular",
-                "declarations": {
-                  "padding": "8px 16px",
-                  "padding-top": "8px",
-                  "padding-right": "16px",
-                  "padding-bottom": "8px",
-                  "padding-left": "16px"
+                selector: '.btn',
+                source: null,
+                origin: 'regular',
+                declarations: {
+                  padding: '8px 16px',
+                  'padding-top': '8px',
+                  'padding-right': '16px',
+                  'padding-bottom': '8px',
+                  'padding-left': '16px'
                 },
-                "inheritedFrom": null
+                inheritedFrom: null
               },
               {
-                "selector": "#main-btn",
-                "source": null,
-                "origin": "regular",
-                "declarations": {
-                  "background-color": "blue",
-                  "color": "white",
-                  "border-radius": "4px",
-                  "border-top-left-radius": "4px",
-                  "border-top-right-radius": "4px",
-                  "border-bottom-right-radius": "4px",
-                  "border-bottom-left-radius": "4px"
+                selector: '#main-btn',
+                source: null,
+                origin: 'regular',
+                declarations: {
+                  'background-color': 'blue',
+                  color: 'white',
+                  'border-radius': '4px',
+                  'border-top-left-radius': '4px',
+                  'border-top-right-radius': '4px',
+                  'border-bottom-right-radius': '4px',
+                  'border-bottom-left-radius': '4px'
                 },
-                "inheritedFrom": null
+                inheritedFrom: null
               },
               {
-                "selector": ".container",
-                "source": null,
-                "origin": "regular",
-                "declarations": {
-                  "padding": "20px",
-                  "margin": "10px",
-                  "padding-top": "20px",
-                  "padding-right": "20px",
-                  "padding-bottom": "20px",
-                  "padding-left": "20px",
-                  "margin-top": "10px",
-                  "margin-right": "10px",
-                  "margin-bottom": "10px",
-                  "margin-left": "10px"
+                selector: '.container',
+                source: null,
+                origin: 'regular',
+                declarations: {
+                  padding: '20px',
+                  margin: '10px',
+                  'padding-top': '20px',
+                  'padding-right': '20px',
+                  'padding-bottom': '20px',
+                  'padding-left': '20px',
+                  'margin-top': '10px',
+                  'margin-right': '10px',
+                  'margin-bottom': '10px',
+                  'margin-left': '10px'
                 },
-                "inheritedFrom": "ancestor[1]"
+                inheritedFrom: 'ancestor[1]'
               },
               {
-                "selector": "body",
-                "source": null,
-                "origin": "regular",
-                "declarations": {
-                  "font-family": "Arial, sans-serif",
-                  "color": "rgb(51, 51, 51)"
-                },
-                "inheritedFrom": "ancestor[2]"
+                selector: 'body',
+                source: null,
+                origin: 'regular',
+                declarations: { 'font-family': 'Arial, sans-serif', color: 'rgb(51, 51, 51)' },
+                inheritedFrom: 'ancestor[2]'
               }
             ]
           }"
@@ -1814,49 +1804,48 @@ describe('MCP Server Tests', () => {
         expect(formattedResult.isError).toBeFalsy()
         const formattedText = (formattedResult.content as any)[0]?.text || ''
         expect(formattedText).toMatchInlineSnapshot(`
-          "Return value:
-          Element: button#main-btn.btn
-
-          Inline styles:
-            font-weight: bold
-
-          Matched rules:
-            .btn {
-              padding: 8px 16px;
-              padding-top: 8px;
-              padding-right: 16px;
-              padding-bottom: 8px;
-              padding-left: 16px;
-            }
-            #main-btn {
-              background-color: blue;
-              color: white;
-              border-radius: 4px;
-              border-top-left-radius: 4px;
-              border-top-right-radius: 4px;
-              border-bottom-right-radius: 4px;
-              border-bottom-left-radius: 4px;
-            }
-
-          Inherited from ancestor[1]:
-            .container {
-              padding: 20px;
-              margin: 10px;
-              padding-top: 20px;
-              padding-right: 20px;
-              padding-bottom: 20px;
-              padding-left: 20px;
-              margin-top: 10px;
-              margin-right: 10px;
-              margin-bottom: 10px;
-              margin-left: 10px;
-            }
-
-          Inherited from ancestor[2]:
-            body {
-              font-family: Arial, sans-serif;
-              color: rgb(51, 51, 51);
-            }"
+          "[return value] 'Element: button#main-btn.btn\\n' +
+            '\\n' +
+            'Inline styles:\\n' +
+            '  font-weight: bold\\n' +
+            '\\n' +
+            'Matched rules:\\n' +
+            '  .btn {\\n' +
+            '    padding: 8px 16px;\\n' +
+            '    padding-top: 8px;\\n' +
+            '    padding-right: 16px;\\n' +
+            '    padding-bottom: 8px;\\n' +
+            '    padding-left: 16px;\\n' +
+            '  }\\n' +
+            '  #main-btn {\\n' +
+            '    background-color: blue;\\n' +
+            '    color: white;\\n' +
+            '    border-radius: 4px;\\n' +
+            '    border-top-left-radius: 4px;\\n' +
+            '    border-top-right-radius: 4px;\\n' +
+            '    border-bottom-right-radius: 4px;\\n' +
+            '    border-bottom-left-radius: 4px;\\n' +
+            '  }\\n' +
+            '\\n' +
+            'Inherited from ancestor[1]:\\n' +
+            '  .container {\\n' +
+            '    padding: 20px;\\n' +
+            '    margin: 10px;\\n' +
+            '    padding-top: 20px;\\n' +
+            '    padding-right: 20px;\\n' +
+            '    padding-bottom: 20px;\\n' +
+            '    padding-left: 20px;\\n' +
+            '    margin-top: 10px;\\n' +
+            '    margin-right: 10px;\\n' +
+            '    margin-bottom: 10px;\\n' +
+            '    margin-left: 10px;\\n' +
+            '  }\\n' +
+            '\\n' +
+            'Inherited from ancestor[2]:\\n' +
+            '  body {\\n' +
+            '    font-family: Arial, sans-serif;\\n' +
+            '    color: rgb(51, 51, 51);\\n' +
+            '  }\\n'"
         `)
 
         await page.close()
@@ -2066,11 +2055,7 @@ describe('MCP Server Tests', () => {
         expect(result.content).toMatchInlineSnapshot(`
           [
             {
-              "text": "Return value:
-          {
-            \"matchesDark\": false,
-            \"matchesLight\": true
-          }",
+              "text": "[return value] { matchesDark: false, matchesLight: true }",
               "type": "text",
             },
           ]
@@ -2450,13 +2435,12 @@ describe('MCP Server Tests', () => {
 
         // Inline snapshot of cleaned HTML
         expect(text).toMatchInlineSnapshot(`
-          "Return value:
-          <div data-testid="main">
-           <h1>Hello World</h1>
-           <button aria-label="Click me">Submit</button>
-           <a href="/about" title="About page">About</a>
-           <input type="text" placeholder="Enter name">
-          </div>"
+          "[return value] '<div data-testid="main">\\n' +
+            ' <h1>Hello World</h1>\\n' +
+            ' <button aria-label="Click me">Submit</button>\\n' +
+            ' <a href="/about" title="About page">About</a>\\n' +
+            ' <input type="text" placeholder="Enter name">\\n' +
+            '</div>\\n'"
         `)
 
         // Should NOT contain script/style tags (they're removed)
@@ -3800,10 +3784,8 @@ describe('Auto-enable Tests', () => {
     let client: Awaited<ReturnType<typeof createMCPClient>>['client']
     let cleanup: (() => Promise<void>) | null = null
 
-    // Set env var before any setup runs
-    process.env.PLAYWRITER_AUTO_ENABLE = '1'
-
     beforeAll(async () => {
+        process.env.PLAYWRITER_AUTO_ENABLE = '1'
         testCtx = await setupTestContext({ port: TEST_PORT, tempDirPrefix: 'pw-auto-test-' })
 
         const result = await createMCPClient({ port: TEST_PORT })
