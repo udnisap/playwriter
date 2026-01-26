@@ -154,6 +154,7 @@ class ConnectionManager {
           logger.debug('Creating initial tab for Playwright client')
           const tab = await chrome.tabs.create({ url: 'about:blank', active: false })
           if (tab.id) {
+            setTabConnecting(tab.id)
             const { targetInfo, sessionId } = await attachTab(tab.id, { skipAttachedEvent: true })
             logger.debug('Initial tab created and connected:', tab.id, 'sessionId:', sessionId)
             sendMessage({
@@ -624,6 +625,7 @@ async function handleCommand(msg: ExtensionCommandMessage): Promise<any> {
       logger.debug('Creating new tab with URL:', url)
       const tab = await chrome.tabs.create({ url, active: false })
       if (!tab.id) throw new Error('Failed to create tab')
+      setTabConnecting(tab.id)
       logger.debug('Created tab:', tab.id, 'waiting for it to load...')
       await sleep(100)
       const { targetInfo } = await attachTab(tab.id)
@@ -860,11 +862,7 @@ async function connectTab(tabId: number): Promise<void> {
   try {
     logger.debug(`Starting connection to tab ${tabId}`)
 
-    store.setState((state) => {
-      const newTabs = new Map(state.tabs)
-      newTabs.set(tabId, { state: 'connecting' })
-      return { tabs: newTabs }
-    })
+    setTabConnecting(tabId)
 
     await connectionManager.ensureConnection()
     await attachTab(tabId)
@@ -908,6 +906,15 @@ async function connectTab(tabId: number): Promise<void> {
       })
     }
   }
+}
+
+function setTabConnecting(tabId: number): void {
+  store.setState((state) => {
+    const newTabs = new Map(state.tabs)
+    const existing = newTabs.get(tabId)
+    newTabs.set(tabId, { ...existing, state: 'connecting' })
+    return { tabs: newTabs }
+  })
 }
 
 async function disconnectTab(tabId: number): Promise<void> {
