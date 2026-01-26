@@ -187,4 +187,4 @@ ignore ./claude-extension. this is the source code of the Claude Chrome extensio
 
 ## reading playwriter logs
 
-you can find the logfile for playwriter with `playwriter logfile`
+you can find the logfile for playwriter executing `playwriter logfile`. read that then to understand issues happening and debug them
