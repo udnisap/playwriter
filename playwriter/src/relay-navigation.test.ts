@@ -6,7 +6,7 @@ import './test-declarations.js'
 
 const TEST_PORT = 19992
 
-describe('MCP Navigation Tests', () => {
+describe('Relay Navigation Tests', () => {
     let testCtx: TestContext | null = null
 
     beforeAll(async () => {

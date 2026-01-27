@@ -7,7 +7,7 @@ import './test-declarations.js'
 
 const TEST_PORT = 19987
 
-describe('MCP Core Tests', () => {
+describe('Relay Core Tests', () => {
     let client: Awaited<ReturnType<typeof createMCPClient>>['client']
     let cleanup: (() => Promise<void>) | null = null
     let testCtx: TestContext | null = null

@@ -14,7 +14,7 @@ import './test-declarations.js'
 
 const TEST_PORT = 19991
 
-describe('MCP Snapshot & Screenshot Tests', () => {
+describe('Snapshot & Screenshot Tests', () => {
     let client: Awaited<ReturnType<typeof createMCPClient>>['client']
     let cleanup: (() => Promise<void>) | null = null
     let testCtx: TestContext | null = null

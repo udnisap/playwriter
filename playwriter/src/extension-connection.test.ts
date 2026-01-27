@@ -7,7 +7,7 @@ import './test-declarations.js'
 
 const TEST_PORT = 19990
 
-describe('MCP Connection Tests', () => {
+describe('Extension Connection Tests', () => {
     let client: Awaited<ReturnType<typeof createMCPClient>>['client']
     let cleanup: (() => Promise<void>) | null = null
     let testCtx: TestContext | null = null
