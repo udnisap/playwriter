@@ -720,6 +720,12 @@ export class PlaywrightExecutor {
 
     const page = await context.newPage()
     this.setupPageConsoleListener(page)
+    const pageUrl = page.url()
+    if (pageUrl === 'about:blank') {
+      return page
+    }
+
+    // Avoid burning the full timeout on about:blank-like pages.
     await page.waitForLoadState('domcontentloaded', { timeout }).catch(() => {})
     return page
   }
