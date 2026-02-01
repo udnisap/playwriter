@@ -12,7 +12,7 @@ import util from 'node:util'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
-import { createPatch } from 'diff'
+import { createSmartDiff } from './diff-utils.js'
 import { getCdpUrl } from './utils.js'
 import { waitForPageLoad, WaitForPageLoadOptions, WaitForPageLoadResult } from './wait-for-page-load.js'
 import { getCDPSessionForPage, CDPSession, ICDPSession } from './cdp-session.js'
@@ -427,11 +427,13 @@ export class PlaywrightExecutor {
             this.lastSnapshots.set(targetPage, snapshotStr)
             return 'No previous snapshot available. This is the first call for this page. Full snapshot stored for next diff.'
           }
-          const patch = createPatch('snapshot', previousSnapshot, snapshotStr, 'previous', 'current', { context: 3 })
-          if (patch.split('\n').length <= 4) {
-            return 'No changes detected since last snapshot'
-          }
-          return patch
+          const diffResult = createSmartDiff({
+            oldContent: previousSnapshot,
+            newContent: snapshotStr,
+            label: 'snapshot',
+          })
+          this.lastSnapshots.set(targetPage, snapshotStr)
+          return diffResult.content
         }
 
         this.lastSnapshots.set(targetPage, snapshotStr)

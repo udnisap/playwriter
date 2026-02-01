@@ -1,6 +1,6 @@
 import { Page, Locator } from 'playwright-core'
-import { createPatch } from 'diff'
 import { formatHtmlForPrompt } from './htmlrewrite.js'
+import { createSmartDiff } from './diff-utils.js'
 
 export interface GetCleanHTMLOptions {
   locator: Locator | Page
@@ -81,16 +81,15 @@ export async function getCleanHTML(options: GetCleanHTMLOptions): Promise<string
       return 'No previous snapshot available. This is the first call for this locator. Full snapshot stored for next diff.'
     }
 
-    const patch = createPatch('html', previousSnapshot, htmlStr, 'previous', 'current', {
-      context: 3,
+    const diffResult = createSmartDiff({
+      oldContent: previousSnapshot,
+      newContent: htmlStr,
+      label: 'html',
     })
 
     pageSnapshots.set(snapshotKey, htmlStr)
 
-    if (patch.split('\n').length <= 4) {
-      return 'No changes detected since last snapshot'
-    }
-    return patch
+    return diffResult.content
   }
 
   // Store snapshot for future diffs
