@@ -21,7 +21,12 @@ import { Editor } from './editor.js'
 import { getStylesForLocator, formatStylesAsText, type StylesResult } from './styles.js'
 import { getReactSource, type ReactSourceLocation } from './react-source.js'
 import { ScopedFS } from './scoped-fs.js'
-import { screenshotWithAccessibilityLabels, formatSnapshot, DEFAULT_SNAPSHOT_FORMAT, getAriaSnapshot, type ScreenshotResult, type SnapshotFormat } from './aria-snapshot.js'
+import {
+  screenshotWithAccessibilityLabels,
+  getAriaSnapshot,
+  type ScreenshotResult,
+  type SnapshotFormat,
+} from './aria-snapshot.js'
 export type { SnapshotFormat }
 import { getCleanHTML, type GetCleanHTMLOptions } from './clean-html.js'
 import { getPageMarkdown, type GetPageMarkdownOptions } from './page-markdown.js'
@@ -66,24 +71,42 @@ const NO_PAGES_AVAILABLE_ERROR =
 const MAX_LOGS_PER_PAGE = 5000
 
 const ALLOWED_MODULES = new Set([
-  'path', 'node:path',
-  'url', 'node:url',
-  'querystring', 'node:querystring',
-  'punycode', 'node:punycode',
-  'crypto', 'node:crypto',
-  'buffer', 'node:buffer',
-  'string_decoder', 'node:string_decoder',
-  'util', 'node:util',
-  'assert', 'node:assert',
-  'events', 'node:events',
-  'timers', 'node:timers',
-  'stream', 'node:stream',
-  'zlib', 'node:zlib',
-  'http', 'node:http',
-  'https', 'node:https',
-  'http2', 'node:http2',
-  'os', 'node:os',
-  'fs', 'node:fs',
+  'path',
+  'node:path',
+  'url',
+  'node:url',
+  'querystring',
+  'node:querystring',
+  'punycode',
+  'node:punycode',
+  'crypto',
+  'node:crypto',
+  'buffer',
+  'node:buffer',
+  'string_decoder',
+  'node:string_decoder',
+  'util',
+  'node:util',
+  'assert',
+  'node:assert',
+  'events',
+  'node:events',
+  'timers',
+  'node:timers',
+  'stream',
+  'node:stream',
+  'zlib',
+  'node:zlib',
+  'http',
+  'node:http',
+  'https',
+  'node:https',
+  'http2',
+  'node:http2',
+  'os',
+  'node:os',
+  'fs',
+  'node:fs',
 ])
 
 export interface ExecuteResult {
@@ -119,8 +142,6 @@ function isRegExp(value: any): value is RegExp {
 function isPromise(value: any): value is Promise<unknown> {
   return typeof value === 'object' && value !== null && typeof value.then === 'function'
 }
-
-
 
 export class PlaywrightExecutor {
   private isConnected = false
@@ -249,7 +270,7 @@ export class PlaywrightExecutor {
       if (!response.ok) {
         return { connected: false, activeTargets: 0 }
       }
-      return await response.json() as { connected: boolean; activeTargets: number }
+      return (await response.json()) as { connected: boolean; activeTargets: number }
     } catch {
       return { connected: false, activeTargets: 0 }
     }
@@ -399,11 +420,21 @@ export class PlaywrightExecutor {
       this.logger.log('Executing code:', code)
 
       const customConsole = {
-        log: (...args: any[]) => { consoleLogs.push({ method: 'log', args }) },
-        info: (...args: any[]) => { consoleLogs.push({ method: 'info', args }) },
-        warn: (...args: any[]) => { consoleLogs.push({ method: 'warn', args }) },
-        error: (...args: any[]) => { consoleLogs.push({ method: 'error', args }) },
-        debug: (...args: any[]) => { consoleLogs.push({ method: 'debug', args }) },
+        log: (...args: any[]) => {
+          consoleLogs.push({ method: 'log', args })
+        },
+        info: (...args: any[]) => {
+          consoleLogs.push({ method: 'info', args })
+        },
+        warn: (...args: any[]) => {
+          consoleLogs.push({ method: 'warn', args })
+        },
+        error: (...args: any[]) => {
+          consoleLogs.push({ method: 'error', args })
+        },
+        debug: (...args: any[]) => {
+          consoleLogs.push({ method: 'debug', args })
+        },
       }
 
       const accessibilitySnapshot = async (options: {
@@ -412,16 +443,21 @@ export class PlaywrightExecutor {
         locator?: Locator
         search?: string | RegExp
         showDiffSinceLastCall?: boolean
-        /** Snapshot format: 'raw', 'compact', 'interactive', 'interactive-dedup' (default) */
+        /** Snapshot format (currently raw only) */
         format?: SnapshotFormat
+        /** Only include interactive elements (default: true) */
+        interactiveOnly?: boolean
       }) => {
-        const { page: targetPage, locator, search, showDiffSinceLastCall = false, format = DEFAULT_SNAPSHOT_FORMAT } = options
-        
+        const { page: targetPage, locator, search, showDiffSinceLastCall = false, interactiveOnly = true } = options
+
         // Use new in-page implementation via getAriaSnapshot
-        const { snapshot: rawSnapshot } = await getAriaSnapshot({ page: targetPage, locator })
-        const sanitizedStr = rawSnapshot.toWellFormed?.() ?? rawSnapshot
-        // Apply format transformation
-        const snapshotStr = formatSnapshot(sanitizedStr, format, this.logger)
+        const { snapshot: rawSnapshot } = await getAriaSnapshot({
+          page: targetPage,
+          locator,
+          wsUrl: getCdpUrl(this.cdpConfig),
+          interactiveOnly,
+        })
+        const snapshotStr = rawSnapshot.toWellFormed?.() ?? rawSnapshot
 
         if (showDiffSinceLastCall) {
           const previousSnapshot = this.lastSnapshots.get(targetPage)
@@ -588,8 +624,12 @@ export class PlaywrightExecutor {
           ...options,
           collector: screenshotCollector,
           logger: {
-            info: (...args) => { this.logger.error('[playwriter]', ...args) },
-            error: (...args) => { this.logger.error('[playwriter]', ...args) },
+            info: (...args) => {
+              this.logger.error('[playwriter]', ...args)
+            },
+            error: (...args) => {
+              this.logger.error('[playwriter]', ...args)
+            },
           },
         })
       }
@@ -600,7 +640,7 @@ export class PlaywrightExecutor {
       const relayPort = this.cdpConfig.port || 19988
       // Recording will work on any tab where the user has clicked the icon.
       const withRecordingDefaults = <T extends { page?: Page; sessionId?: string }, R>(
-        fn: (opts: T & { relayPort: number; sessionId?: string }) => Promise<R>
+        fn: (opts: T & { relayPort: number; sessionId?: string }) => Promise<R>,
       ) => {
         return async (options: T = {} as T) => {
           const targetPage = options.page || page
@@ -661,16 +701,16 @@ export class PlaywrightExecutor {
       if (hasExplicitReturn) {
         const resolvedResult = isPromise(result) ? await result : result
         if (resolvedResult !== undefined) {
-
-          const formatted = typeof resolvedResult === "string"
-            ? resolvedResult
-            : util.inspect(resolvedResult, { depth: 4, colors: false, maxArrayLength: 100, breakLength: 80 })
+          const formatted =
+            typeof resolvedResult === 'string'
+              ? resolvedResult
+              : util.inspect(resolvedResult, { depth: 4, colors: false, maxArrayLength: 100, breakLength: 80 })
           if (formatted.trim()) {
             responseText += `[return value] ${formatted}\n`
           }
         }
       }
-      
+
       if (!responseText.trim()) {
         responseText = 'Code executed successfully (no output)'
       }
@@ -684,7 +724,8 @@ export class PlaywrightExecutor {
       const MAX_LENGTH = 6000
       let finalText = responseText.trim()
       if (finalText.length > MAX_LENGTH) {
-        finalText = finalText.slice(0, MAX_LENGTH) +
+        finalText =
+          finalText.slice(0, MAX_LENGTH) +
           `\n\n[Truncated to ${MAX_LENGTH} characters. Better manage your logs or paginate them to read the full logs]`
       }
 
@@ -698,8 +739,9 @@ export class PlaywrightExecutor {
       this.logger.error('Error in execute:', errorStack)
 
       const logsText = formatConsoleLogs(consoleLogs, 'Console output (before error)')
-      const resetHint = isTimeoutError ? '' :
-        '\n\n[HINT: If this is an internal Playwright error, page/browser closed, or connection issue, call reset to reconnect.]'
+      const resetHint = isTimeoutError
+        ? ''
+        : '\n\n[HINT: If this is an internal Playwright error, page/browser closed, or connection issue, call reset to reconnect.]'
 
       return {
         text: `${logsText}\nError executing code: ${error.message}\n${errorStack}${resetHint}`,
