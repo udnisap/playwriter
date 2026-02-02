@@ -1,6 +1,8 @@
 import { createMCPClient } from './mcp-client.js'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { chromium } from 'playwright-core'
+import type { Page } from 'playwright-core'
+import type { AriaSnapshotNode } from './aria-snapshot.js'
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -416,48 +418,48 @@ describe('Snapshot & Screenshot Tests', () => {
         expect(formattedResult.isError).toBeFalsy()
         const formattedText = (formattedResult.content as any)[0]?.text || ''
         expect(formattedText).toMatchInlineSnapshot(`
-          "[return value] 'Element: button#main-btn.btn\\n' +
-            '\\n' +
-            'Inline styles:\\n' +
-            '  font-weight: bold\\n' +
-            '\\n' +
-            'Matched rules:\\n' +
-            '  .btn {\\n' +
-            '    padding: 8px 16px;\\n' +
-            '    padding-top: 8px;\\n' +
-            '    padding-right: 16px;\\n' +
-            '    padding-bottom: 8px;\\n' +
-            '    padding-left: 16px;\\n' +
-            '  }\\n' +
-            '  #main-btn {\\n' +
-            '    background-color: blue;\\n' +
-            '    color: white;\\n' +
-            '    border-radius: 4px;\\n' +
-            '    border-top-left-radius: 4px;\\n' +
-            '    border-top-right-radius: 4px;\\n' +
-            '    border-bottom-right-radius: 4px;\\n' +
-            '    border-bottom-left-radius: 4px;\\n' +
-            '  }\\n' +
-            '\\n' +
-            'Inherited from ancestor[1]:\\n' +
-            '  .container {\\n' +
-            '    padding: 20px;\\n' +
-            '    margin: 10px;\\n' +
-            '    padding-top: 20px;\\n' +
-            '    padding-right: 20px;\\n' +
-            '    padding-bottom: 20px;\\n' +
-            '    padding-left: 20px;\\n' +
-            '    margin-top: 10px;\\n' +
-            '    margin-right: 10px;\\n' +
-            '    margin-bottom: 10px;\\n' +
-            '    margin-left: 10px;\\n' +
-            '  }\\n' +
-            '\\n' +
-            'Inherited from ancestor[2]:\\n' +
-            '  body {\\n' +
-            '    font-family: Arial, sans-serif;\\n' +
-            '    color: rgb(51, 51, 51);\\n' +
-            '  }\\n'"
+          "[return value] Element: button#main-btn.btn
+
+          Inline styles:
+            font-weight: bold
+
+          Matched rules:
+            .btn {
+              padding: 8px 16px;
+              padding-top: 8px;
+              padding-right: 16px;
+              padding-bottom: 8px;
+              padding-left: 16px;
+            }
+            #main-btn {
+              background-color: blue;
+              color: white;
+              border-radius: 4px;
+              border-top-left-radius: 4px;
+              border-top-right-radius: 4px;
+              border-bottom-right-radius: 4px;
+              border-bottom-left-radius: 4px;
+            }
+
+          Inherited from ancestor[1]:
+            .container {
+              padding: 20px;
+              margin: 10px;
+              padding-top: 20px;
+              padding-right: 20px;
+              padding-bottom: 20px;
+              padding-left: 20px;
+              margin-top: 10px;
+              margin-right: 10px;
+              margin-bottom: 10px;
+              margin-left: 10px;
+            }
+
+          Inherited from ancestor[2]:
+            body {
+              font-family: Arial, sans-serif;
+              color: rgb(51, 51, 51);
+            }"
         `)
 
         await page.close()
@@ -621,6 +623,37 @@ describe('Snapshot & Screenshot Tests', () => {
         expect(ariaResult.snapshot).toContain('[data-testid="about-link"]')
         expect(ariaResult.snapshot).toContain('[data-testid="name-input"]')
 
+        const flattenNodes = (nodes: AriaSnapshotNode[]): AriaSnapshotNode[] => {
+          return nodes.flatMap((node) => {
+            return [node, ...flattenNodes(node.children)]
+          })
+        }
+
+        const allNodes = flattenNodes(ariaResult.tree)
+        const findByLocator = (locator: string) => {
+          return allNodes.find((node) => node.locator === locator)
+        }
+
+        const submitNode = findByLocator('[data-testid="submit-btn"]')
+        const aboutNode = findByLocator('[data-testid="about-link"]')
+        const nameNode = findByLocator('[data-testid="name-input"]')
+
+        expect(submitNode).toBeDefined()
+        expect(aboutNode).toBeDefined()
+        expect(nameNode).toBeDefined()
+
+        const submitLocator = cdpPage!.locator(submitNode!.locator!)
+        const aboutLocator = cdpPage!.locator(aboutNode!.locator!)
+        const nameLocator = cdpPage!.locator(nameNode!.locator!)
+
+        expect(await submitLocator.count()).toBe(1)
+        expect(await aboutLocator.count()).toBe(1)
+        expect(await nameLocator.count()).toBe(1)
+
+        expect(await submitLocator.textContent()).toBe('Submit Form')
+        expect(await aboutLocator.textContent()).toBe('About Us')
+        expect(await nameLocator.getAttribute('placeholder')).toBe('Enter your name')
+
         expect(ariaResult.refToElement.size).toBeGreaterThan(0)
         console.log('RefToElement map size:', ariaResult.refToElement.size)
         console.log('RefToElement entries:', [...ariaResult.refToElement.entries()])
@@ -675,13 +708,32 @@ describe('Snapshot & Screenshot Tests', () => {
             { name: 'github', url: 'https://github.com/' },
         ]
 
-        const pages = await Promise.all(
-            testPages.map(async ({ name, url }) => {
-                const page = await browserContext.newPage()
-                await page.goto(url, { waitUntil: 'domcontentloaded' })
-                return { name, url, page }
-    }, 180000)
-        )
+        const loadPageWithRetries = async ({ name, url }: { name: string; url: string }) => {
+            const page = await browserContext.newPage()
+            page.setDefaultNavigationTimeout(60000)
+
+            const attempts = 2
+            let lastError: unknown = null
+            for (let attempt = 1; attempt <= attempts; attempt += 1) {
+                try {
+                    console.log(`[labels] opening ${name}: ${url} (attempt ${attempt}/${attempts})`)
+                    await page.goto(url, { waitUntil: 'domcontentloaded' })
+                    await page.waitForLoadState('networkidle', { timeout: 15000 })
+                    console.log(`[labels] loaded ${name}: ${page.url()}`)
+                    return { name, url, page }
+                } catch (error) {
+                    lastError = error
+                }
+            }
+
+            await page.close()
+            throw new Error(`Failed to load ${name} after ${attempts} attempts`, { cause: lastError instanceof Error ? lastError : undefined })
+        }
+
+        const pages: Array<{ name: string; url: string; page: Page }> = []
+        for (const testPage of testPages) {
+            pages.push(await loadPageWithRetries(testPage))
+        }
 
         for (const { page } of pages) {
             await page.bringToFront()
@@ -692,44 +744,94 @@ describe('Snapshot & Screenshot Tests', () => {
 
         const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
 
-        await Promise.all(
-            pages.map(async ({ name, url, page }) => {
-                const cdpPage = browser.contexts()[0].pages().find(p => p.url().includes(new URL(url).hostname))
-
-                if (!cdpPage) {
-                    console.log(`Could not find CDP page for ${name}, skipping...`)
-                    return
-                }
-
-                const { snapshot, labelCount } = await showAriaRefLabels({ page: cdpPage })
-                console.log(`${name}: ${labelCount} labels shown`)
-                if (name !== 'google') {
-                  expect(labelCount).toBeGreaterThan(0)
-                }
-
-                const screenshot = await cdpPage.screenshot({ type: 'png', fullPage: false })
-                const screenshotPath = path.join(assetsDir, `aria-labels-${name}.png`)
-                fs.writeFileSync(screenshotPath, screenshot)
-                console.log(`Screenshot saved: ${screenshotPath}`)
-
-                const snapshotPath = path.join(assetsDir, `aria-labels-${name}-snapshot.txt`)
-                fs.writeFileSync(snapshotPath, snapshot)
-
-                const labelElements = await cdpPage.evaluate(() =>
-                    document.querySelectorAll('.__pw_label__').length
-                )
-                expect(labelElements).toBe(labelCount)
-
-                await hideAriaRefLabels({ page: cdpPage })
-
-                const labelsAfterHide = await cdpPage.evaluate(() =>
-                    document.getElementById('__playwriter_labels__')
-                )
-                expect(labelsAfterHide).toBeNull()
-
-                await page.close()
+        const withTimeout = async <T,>(label: string, task: () => Promise<T>, timeoutMs: number): Promise<T> => {
+            let timeoutId: NodeJS.Timeout | null = null
+            const timeoutPromise = new Promise<never>((_, reject) => {
+                timeoutId = setTimeout(() => {
+                    reject(new Error(`Timed out after ${timeoutMs}ms: ${label}`))
+                }, timeoutMs)
             })
-        )
+
+            try {
+                return await Promise.race([task(), timeoutPromise])
+            } finally {
+                if (timeoutId) {
+                    clearTimeout(timeoutId)
+                }
+            }
+        }
+
+        for (const { name, url, page } of pages) {
+            console.log(`[labels] start ${name}`)
+            const cdpPage = browser.contexts()[0].pages().find(p => p.url().includes(new URL(url).hostname))
+
+            if (!cdpPage) {
+                throw new Error(`Could not find CDP page for ${name}`)
+            }
+
+            console.log(`[labels] show labels ${name}`)
+            const { snapshot, labelCount } = await withTimeout(
+                `showAriaRefLabels(${name})`,
+                async () => {
+                    return await showAriaRefLabels({ page: cdpPage })
+                },
+                30000
+            )
+            console.log(`${name}: ${labelCount} labels shown`)
+            if (name !== 'google') {
+              expect(labelCount).toBeGreaterThan(0)
+            }
+
+            console.log(`[labels] screenshot ${name}`)
+            const screenshot = await withTimeout(
+                `screenshot(${name})`,
+                async () => {
+                    return await cdpPage.screenshot({ type: 'png', fullPage: false })
+                },
+                30000
+            )
+            const screenshotPath = path.join(assetsDir, `aria-labels-${name}.png`)
+            fs.writeFileSync(screenshotPath, screenshot)
+            console.log(`Screenshot saved: ${screenshotPath}`)
+
+            const snapshotPath = path.join(assetsDir, `aria-labels-${name}-snapshot.txt`)
+            fs.writeFileSync(snapshotPath, snapshot)
+
+            console.log(`[labels] count dom labels ${name}`)
+            const labelElements = await withTimeout(
+                `countLabels(${name})`,
+                async () => {
+                    return await cdpPage.evaluate(() =>
+                        document.querySelectorAll('.__pw_label__').length
+                    )
+                },
+                10000
+            )
+            expect(labelElements).toBe(labelCount)
+
+            console.log(`[labels] hide labels ${name}`)
+            await withTimeout(
+                `hideAriaRefLabels(${name})`,
+                async () => {
+                    await hideAriaRefLabels({ page: cdpPage })
+                },
+                10000
+            )
+
+            const labelsAfterHide = await withTimeout(
+                `verifyHide(${name})`,
+                async () => {
+                    return await cdpPage.evaluate(() =>
+                        document.getElementById('__playwriter_labels__')
+                    )
+                },
+                10000
+            )
+            expect(labelsAfterHide).toBeNull()
+
+            console.log(`[labels] close page ${name}`)
+            await page.close()
+        }
 
         await browser.close()
         console.log(`Screenshots saved to: ${assetsDir}`)
