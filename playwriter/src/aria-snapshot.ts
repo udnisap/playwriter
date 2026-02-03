@@ -1253,9 +1253,9 @@ export async function screenshotWithAccessibilityLabels({ page, locator, interac
   collector: ScreenshotResult[]
   logger?: { info?: (...args: unknown[]) => void; error?: (...args: unknown[]) => void }
 }): Promise<void> {
+  const log = logger?.info ?? logger?.error
   const showLabelsStart = Date.now()
   const { snapshot, labelCount } = await showAriaRefLabels({ page, locator, interactiveOnly, wsUrl, logger })
-  const log = logger?.info ?? logger?.error
   if (log) {
     log(`showAriaRefLabels: ${Date.now() - showLabelsStart}ms`)
   }
@@ -1287,14 +1287,19 @@ export async function screenshotWithAccessibilityLabels({ page, locator, interac
   const clipHeight = sharp ? viewport.height : Math.min(viewport.height, MAX_DIMENSION)
 
   // Take viewport screenshot with scale: 'css' to ignore device pixel ratio
+  const screenshotStart = Date.now()
   const rawBuffer = await page.screenshot({
     type: 'jpeg',
     quality: 80,
     scale: 'css',
     clip: { x: 0, y: 0, width: clipWidth, height: clipHeight },
   })
+  if (log) {
+    log(`page.screenshot: ${Date.now() - screenshotStart}ms`)
+  }
 
   // Resize with sharp if available, otherwise use clipped raw buffer
+  const resizeStart = Date.now()
   const buffer = await (async () => {
     if (!sharp) {
       logger?.error?.('[playwriter] sharp not available, using clipped screenshot (max', MAX_DIMENSION, 'px)')
@@ -1315,6 +1320,9 @@ export async function screenshotWithAccessibilityLabels({ page, locator, interac
       return rawBuffer
     }
   })()
+  if (log) {
+    log(`screenshot resize: ${Date.now() - resizeStart}ms`)
+  }
 
   // Save to file
   fs.writeFileSync(screenshotPath, buffer)
