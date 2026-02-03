@@ -91,41 +91,38 @@ globalThis.__readability = { Readability, isProbablyReaderable }
 
 async function buildBundle(config: BundleConfig): Promise<void> {
   const startTime = Date.now()
-  const entrypoint =
-    config.type === 'source' ? path.join(srcDir, config.entry) : `virtual:${config.name}`
-  const plugins =
-    config.type === 'source'
-      ? []
-      : [
-          {
-            name: `virtual-${config.name}`,
-            setup(build) {
-              const filter = new RegExp(`^virtual:${config.name}$`)
-              build.onResolve({ filter }, (args) => {
-                return {
-                  path: args.path,
-                  namespace: 'virtual',
-                }
-              })
-              build.onLoad({ filter, namespace: 'virtual' }, () => {
-                return {
-                  contents: config.code,
-                  loader: 'js',
-                }
-              })
-            },
-          },
-        ]
+  const entryPathConfig: { entryPath: string; cleanupEntry: boolean } = (() => {
+    if (config.type === 'source') {
+      return {
+        entryPath: path.join(srcDir, config.entry),
+        cleanupEntry: false,
+      }
+    }
+
+    // Create temporary entry file for wrapper bundles
+    const entrySuffix = `${process.pid}-${Date.now()}`
+    const entryPath = path.join(distDir, `_${config.name}-entry-${entrySuffix}.js`)
+    fs.writeFileSync(entryPath, config.code)
+    return {
+      entryPath,
+      cleanupEntry: true,
+    }
+  })()
+  const { entryPath, cleanupEntry } = entryPathConfig
 
   const result = await Bun.build({
-    entrypoints: [entrypoint],
-    plugins,
+    entrypoints: [entryPath],
     target: 'browser',
     format: 'iife',
     define: {
       'process.env.NODE_ENV': '"development"',
     },
   })
+
+  // Cleanup temporary entry file
+  if (cleanupEntry && fs.existsSync(entryPath)) {
+    fs.unlinkSync(entryPath)
+  }
 
   if (!result.success) {
     console.error(`Bundle errors for ${config.name}:`, result.logs)
