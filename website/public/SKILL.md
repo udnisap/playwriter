@@ -160,15 +160,15 @@ await fileInput.setInputFiles('/path/to/image.png');
 await page.keyboard.press('Meta+v');  // always verify with screenshot!
 ```
 
-**3. Using stale refs from old snapshots**
-Fallback refs like `ref=e23` change when page updates. Always get a fresh snapshot before clicking:
+**3. Using stale locators from old snapshots**
+Locators (especially ones with `>> nth=`) can change when the page updates. Always get a fresh snapshot before clicking:
 ```js
 // BAD: using ref from minutes ago
 await page.locator('[id="old-id"]').click();  // element may have changed
 
-// GOOD: get fresh snapshot, then immediately use refs from it
+// GOOD: get fresh snapshot, then immediately use locators from it
 console.log(await accessibilitySnapshot({ page, showDiffSinceLastCall: true }));
-// Now use the NEW refs from this output
+// Now use the NEW locators from this output
 ```
 
 **4. Wrong assumptions about current page/element**
@@ -229,10 +229,10 @@ await loginPage.waitForURL('**/callback**');
 After any action (click, submit, navigate), verify what happened:
 
 ```js
-console.log('url:', page.url()); console.log(await accessibilitySnapshot({ page }).then(x => x.split('\n').slice(0, 30).join('\n')));
+console.log('url:', page.url()); console.log(await accessibilitySnapshot({ page }));
 ```
 
-For visually complex pages (grids, galleries, dashboards), use `screenshotWithAccessibilityLabels({ page })` instead to understand spatial layout.
+For visually complex pages (grids, galleries, dashboards), use `screenshotWithAccessibilityLabels({ page })` instead to understand spatial layout. Label refs are short `eN` strings (e.g. `e3`).
 
 If nothing changed, try `await waitForPageLoad({ page, timeout: 3000 })` or you may have clicked the wrong element.
 
@@ -243,40 +243,36 @@ await accessibilitySnapshot({ page, search?, showDiffSinceLastCall? })
 ```
 
 - `search` - string/regex to filter results (returns first 10 matching lines)
-- `showDiffSinceLastCall` - returns diff since last snapshot (useful after actions)
+- `showDiffSinceLastCall` - returns diff since last snapshot (default: `true`). Pass `false` to get full snapshot.
 
-For pagination, use `.split('\n').slice(offset, offset + limit).join('\n')`:
-```js
-console.log((await accessibilitySnapshot({ page })).split('\n').slice(0, 50).join('\n'));   // first 50 lines
-console.log((await accessibilitySnapshot({ page })).split('\n').slice(50, 100).join('\n')); // next 50 lines
-```
+Snapshots automatically return diffs after the first call. The diff is returned only when it's shorter than the full content.
 
 Example output:
 
 ```md
 - banner:
-    - link "Home" id=nav-home
+    - link "Home" [id="nav-home"]
     - navigation:
-        - link "Docs" data-testid=docs-link
-        - link "Blog" ref=e1
-
-# Locators (pass to page.locator()):
-#   nav-home → [id="nav-home"]
-#   docs-link → [data-testid="docs-link"]
-#   e1 → role=link[name="Blog"]
+        - link "Docs" [data-testid="docs-link"]
+        - link "Blog" role=link[name="Blog"]
 ```
 
-The attribute name reflects where the ref came from:
-- `id=value` - element has an id attribute
-- `data-testid=value` - element has a data-testid attribute (or similar test attrs)
-- `ref=e1` - fallback for elements without stable IDs
+Each interactive line ends with a Playwright locator you can pass to `page.locator()`.
+If multiple elements share the same locator, a `>> nth=N` suffix is added (0-based)
+to make it unique.
 
-The **Locators** section at the end shows the exact selector to pass to `page.locator()`:
+If a screenshot shows ref labels like `e3`, resolve them using the last snapshot:
+
+```js
+const snapshot = await accessibilitySnapshot({ page })
+const locator = refToLocator({ ref: 'e3' })
+await page.locator(locator!).click()
+```
 
 ```js
 await page.locator('[id="nav-home"]').click()
 await page.locator('[data-testid="docs-link"]').click()
-await page.locator('role=link[name="Blog"]').click()  // for fallback refs
+await page.locator('role=link[name="Blog"]').click()
 ```
 
 Search for specific elements:
@@ -305,7 +301,7 @@ Both `accessibilitySnapshot` and `screenshotWithAccessibilityLabels` use the sam
 
 ## selector best practices
 
-**For unknown websites**: use `accessibilitySnapshot()` - it shows what's actually interactive with stable refs.
+**For unknown websites**: use `accessibilitySnapshot()` - it shows what's actually interactive with stable locators.
 
 **For development** (when you have source code access), prefer stable selectors in this order:
 
@@ -477,13 +473,13 @@ await getCleanHTML({ locator, search?, showDiffSinceLastCall?, includeStyles? })
 // Examples:
 const html = await getCleanHTML({ locator: page.locator('body') })
 const html = await getCleanHTML({ locator: page, search: /button/i })
-const diff = await getCleanHTML({ locator: page, showDiffSinceLastCall: true })
+const fullHtml = await getCleanHTML({ locator: page, showDiffSinceLastCall: false })  // disable diff
 ```
 
 **Parameters:**
 - `locator` - Playwright Locator or Page to get HTML from
 - `search` - string/regex to filter results (returns first 10 matching lines with 5 lines context)
-- `showDiffSinceLastCall` - returns unified diff since last call for same locator/page. First call stores snapshot and returns message; subsequent calls return the diff. Useful for tracking DOM changes after actions.
+- `showDiffSinceLastCall` - returns diff since last call (default: `true`). Pass `false` to get full HTML.
 - `includeStyles` - keep style and class attributes (default: false)
 
 **HTML processing:**
@@ -498,20 +494,15 @@ The function cleans HTML for compact, readable output:
 - All `data-*` test attributes
 - Frequently used test IDs and special attributes (e.g., `testid`, `qa`, `e2e`, `vimium-label`)
 
-For pagination, use `.split('\n').slice(offset, offset + limit).join('\n')`:
-```js
-console.log((await getCleanHTML({ locator: page })).split('\n').slice(0, 50).join('\n'));   // first 50 lines
-console.log((await getCleanHTML({ locator: page })).split('\n').slice(50, 100).join('\n')); // next 50 lines
-```
+Snapshots automatically return diffs after the first call. The diff is returned only when it's shorter than the full content.
 
 **getPageMarkdown** - extract main page content as plain text using Mozilla Readability (same algorithm as Firefox Reader View). Strips navigation, ads, sidebars, and other clutter. Returns formatted text with title, author, and content:
 
 ```js
 await getPageMarkdown({ page, search?, showDiffSinceLastCall? })
 // Examples:
-const content = await getPageMarkdown({ page })  // full article as plain text
+const content = await getPageMarkdown({ page, showDiffSinceLastCall: false })  // full article
 const matches = await getPageMarkdown({ page, search: /API/i })  // search within content
-const diff = await getPageMarkdown({ page, showDiffSinceLastCall: true })  // track content changes
 ```
 
 **Output format:**
@@ -528,7 +519,9 @@ The main article content as plain text, with paragraphs preserved...
 **Parameters:**
 - `page` - Playwright Page to extract content from
 - `search` - string/regex to filter content (returns first 10 matching lines with 5 lines context)
-- `showDiffSinceLastCall` - returns unified diff since last call. Useful for tracking content changes.
+- `showDiffSinceLastCall` - returns diff since last call (default: `true`). Pass `false` to get full content.
+
+Snapshots automatically return diffs after the first call. The diff is returned only when it's shorter than the full content.
 
 **Use cases:**
 - Extract article text for LLM processing without HTML noise
