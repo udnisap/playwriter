@@ -782,6 +782,15 @@ export class PlaywrightExecutor {
     }
 
     if (!process.env.PLAYWRITER_AUTO_ENABLE) {
+      const waitTimeoutMs = Math.min(timeout, 1000)
+      const startTime = Date.now()
+      while (Date.now() - startTime < waitTimeoutMs) {
+        const availablePages = context.pages().filter((p) => !p.isClosed())
+        if (availablePages.length > 0) {
+          return availablePages[0]
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
       throw new Error(NO_PAGES_AVAILABLE_ERROR)
     }
 
