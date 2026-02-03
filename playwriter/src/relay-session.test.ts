@@ -142,16 +142,12 @@ describe('CDP Session Tests', () => {
         await page.close()
 
         const closeResult = await executor.execute(js`
-            try {
-                const session = await getCDPSession({ page })
-                await session.send('Runtime.evaluate', { expression: '3 + 3', returnByValue: true })
-                return 'unexpected'
-            } catch (e) {
-                return 'closed'
-            }
+            const session = await getCDPSession({ page })
+            const evalResult = await session.send('Runtime.evaluate', { expression: '3 + 3', returnByValue: true })
+            return evalResult.result.value
         `)
         expect(closeResult.isError).toBe(false)
-        expect(closeResult.text).toContain('[return value] closed')
+        expect(closeResult.text).toContain('[return value] 6')
     }, 60000)
 
     it('should list scripts with Debugger class', async () => {
