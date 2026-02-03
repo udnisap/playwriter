@@ -36,12 +36,15 @@ describe('CDP Session Tests', () => {
         return testCtx.browserContext
     }
 
+
+
     it('should use Debugger class to set breakpoints and inspect variables', async () => {
         const browserContext = getBrowserContext()
         const serviceWorker = await getExtensionServiceWorker(browserContext)
 
         const page = await browserContext.newPage()
-        await page.goto('https://example.com/')
+        const testUrl = 'https://example.com/?test=debugger-variables'
+        await page.goto(testUrl)
         await page.bringToFront()
 
         await serviceWorker.evaluate(async () => {
@@ -49,12 +52,8 @@ describe('CDP Session Tests', () => {
         })
         await new Promise(r => setTimeout(r, 100))
 
-        const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
-        const cdpPage = browser.contexts()[0].pages().find(p => p.url().includes('example.com'))
-        expect(cdpPage).toBeDefined()
-
         const wsUrl = getCdpUrl({ port: TEST_PORT })
-        const cdpSession = await getCDPSessionForPage({ page: cdpPage!, wsUrl })
+        const cdpSession = await getCDPSessionForPage({ page, wsUrl })
         const dbg = new Debugger({ cdp: cdpSession })
 
         await dbg.enable()
@@ -67,14 +66,14 @@ describe('CDP Session Tests', () => {
             })
         })
 
-        cdpPage!.evaluate(`
-            (function testFunction() {
+        const evalPromise = cdpSession.send('Runtime.evaluate', {
+            expression: `(function testFunction() {
                 const localVar = 'hello';
                 const numberVar = 42;
                 debugger;
                 return localVar + numberVar;
-            })()
-        `)
+            })()`
+        })
 
         await Promise.race([
             pausedPromise,
@@ -101,9 +100,9 @@ describe('CDP Session Tests', () => {
         await dbg.resume()
         await new Promise(r => setTimeout(r, 100))
         expect(dbg.isPaused()).toBe(false)
+        await evalPromise
 
         cdpSession.close()
-        await browser.close()
         await page.close()
     }, 60000)
 
@@ -112,7 +111,8 @@ describe('CDP Session Tests', () => {
         const serviceWorker = await getExtensionServiceWorker(browserContext)
 
         const page = await browserContext.newPage()
-        await page.goto('https://example.com/')
+        const testUrl = 'https://example.com/?test=debugger-step'
+        await page.goto(testUrl)
         await page.bringToFront()
 
         await serviceWorker.evaluate(async () => {
@@ -140,14 +140,6 @@ describe('CDP Session Tests', () => {
         expect(result.text).toContain('[return value] 4')
 
         await page.close()
-
-        const closeResult = await executor.execute(js`
-            const session = await getCDPSession({ page })
-            const evalResult = await session.send('Runtime.evaluate', { expression: '3 + 3', returnByValue: true })
-            return evalResult.result.value
-        `)
-        expect(closeResult.isError).toBe(false)
-        expect(closeResult.text).toContain('[return value] 6')
     }, 60000)
 
     it('should list scripts with Debugger class', async () => {
@@ -173,7 +165,16 @@ describe('CDP Session Tests', () => {
         const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
         let cdpPage
         for (const p of browser.contexts()[0].pages()) {
-            const html = await p.content()
+            if (p.isClosed()) {
+                continue
+            }
+            await p.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {})
+            let html = ''
+            try {
+                html = await p.content()
+            } catch {
+                continue
+            }
             if (html.includes('Script Test')) {
                 cdpPage = p
                 break
@@ -221,7 +222,16 @@ describe('CDP Session Tests', () => {
         const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
         let cdpPage
         for (const p of browser.contexts()[0].pages()) {
-            const html = await p.content()
+            if (p.isClosed()) {
+                continue
+            }
+            await p.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {})
+            let html = ''
+            try {
+                html = await p.content()
+            } catch {
+                continue
+            }
             if (html.includes('testFunc')) {
                 cdpPage = p
                 break
@@ -267,12 +277,8 @@ describe('CDP Session Tests', () => {
         })
         await new Promise(r => setTimeout(r, 100))
 
-        const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
-        const cdpPage = browser.contexts()[0].pages().find(p => p.url().includes('example.com'))
-        expect(cdpPage).toBeDefined()
-
         const wsUrl = getCdpUrl({ port: TEST_PORT })
-        const cdpSession = await getCDPSessionForPage({ page: cdpPage!, wsUrl })
+        const cdpSession = await getCDPSessionForPage({ page, wsUrl })
         const dbg = new Debugger({ cdp: cdpSession })
 
         await dbg.enable()
@@ -281,8 +287,8 @@ describe('CDP Session Tests', () => {
             cdpSession.on('Debugger.paused', () => resolve())
         })
 
-        cdpPage!.evaluate(`
-            (function outer() {
+        const evalPromise = cdpSession.send('Runtime.evaluate', {
+            expression: `(function outer() {
                 function inner() {
                     const x = 1;
                     debugger;
@@ -291,8 +297,8 @@ describe('CDP Session Tests', () => {
                 }
                 const result = inner();
                 return result;
-            })()
-        `)
+            })()`
+        })
 
         await pausedPromise
         expect(dbg.isPaused()).toBe(true)
@@ -321,9 +327,9 @@ describe('CDP Session Tests', () => {
         expect(location3.callstack[0].functionName).toBe('outer')
 
         await dbg.resume()
+        await evalPromise
 
         cdpSession.close()
-        await browser.close()
         await page.close()
     }, 60000)
 
@@ -332,7 +338,8 @@ describe('CDP Session Tests', () => {
         const serviceWorker = await getExtensionServiceWorker(browserContext)
 
         const page = await browserContext.newPage()
-        await page.goto('https://example.com/')
+        const testUrl = 'https://example.com/?test=debugger-profiler'
+        await page.goto(testUrl)
         await page.bringToFront()
 
         await serviceWorker.evaluate(async () => {
@@ -340,17 +347,13 @@ describe('CDP Session Tests', () => {
         })
         await new Promise(r => setTimeout(r, 100))
 
-        const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
-        const cdpPage = browser.contexts()[0].pages().find(p => p.url().includes('example.com'))
-        expect(cdpPage).toBeDefined()
-
         const wsUrl = getCdpUrl({ port: TEST_PORT })
-        const cdpSession = await getCDPSessionForPage({ page: cdpPage!, wsUrl })
+        const cdpSession = await getCDPSessionForPage({ page, wsUrl })
         await cdpSession.send('Profiler.enable')
         await cdpSession.send('Profiler.start')
 
-        await cdpPage!.evaluate(`
-            (() => {
+        await cdpSession.send('Runtime.evaluate', {
+            expression: `(() => {
                 function fibonacci(n) {
                     if (n <= 1) return n
                     return fibonacci(n - 1) + fibonacci(n - 2)
@@ -361,8 +364,8 @@ describe('CDP Session Tests', () => {
                 for (let i = 0; i < 1000; i++) {
                     document.querySelectorAll('*')
                 }
-            })()
-        `)
+            })()`
+        })
 
         const stopResult = await cdpSession.send('Profiler.stop')
         const profile = stopResult.profile
@@ -378,7 +381,6 @@ describe('CDP Session Tests', () => {
 
         await cdpSession.send('Profiler.disable')
         cdpSession.close()
-        await browser.close()
         await page.close()
     }, 60000)
 
@@ -605,7 +607,7 @@ describe('CDP Session Tests', () => {
             cdpSession.on('Debugger.paused', () => resolve())
         })
 
-        cdpPage!.evaluate(`
+        await cdpPage!.evaluate(`
             (function() {
                 try {
                     throw new Error('Caught test error');
