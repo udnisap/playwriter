@@ -172,74 +172,81 @@ describe('Relay Core Tests', () => {
         })
     }, 30000)
 
-    it('should get accessibility snapshot of hacker news', async () => {
-        await client.callTool({
-            name: 'execute',
-            arguments: {
-                code: js`
-          const newPage = await context.newPage();
-          state.page = newPage;
-          if (!state.pages) state.pages = [];
-          state.pages.push(newPage);
-        `,
-            },
-        })
+    const accessibilitySnapshotTestCases = [
+        {
+            name: 'hacker-news',
+            url: 'https://news.ycombinator.com/item?id=1',
+            expectedContent: ['role=link', 'Hacker News'],
+        },
+        {
+            name: 'shadcn-ui',
+            url: 'https://ui.shadcn.com/',
+            expectedContent: ['shadcn'],
+        },
+    ]
 
-        const result = await client.callTool({
-            name: 'execute',
-            arguments: {
-                code: js`
-          await state.page.goto('https://news.ycombinator.com/item?id=1', { waitUntil: 'domcontentloaded' });
-          const snapshot = await accessibilitySnapshot({ page: state.page, showDiffSinceLastCall: false });
-          return snapshot;
-        `,
-            },
-        })
+    for (const testCase of accessibilitySnapshotTestCases) {
+        it(`should get accessibility snapshot of ${testCase.name}`, async () => {
+            await client.callTool({
+                name: 'execute',
+                arguments: {
+                    code: js`
+              const newPage = await context.newPage();
+              state.page = newPage;
+              if (!state.pages) state.pages = [];
+              state.pages.push(newPage);
+            `,
+                },
+            })
 
-        const initialData =
-            typeof result === 'object' && result.content?.[0]?.text
-                ? tryJsonParse(result.content[0].text)
-                : result
-        await expect(initialData).toMatchFileSnapshot(
-            'snapshots/hacker-news-initial-accessibility.md',
-        )
-        expect(result.content).toBeDefined()
-        expect(initialData).toContain('role=link')
-        expect(initialData).toContain('Hacker News')
-    }, 30000)
+            // Capture interactiveOnly=true snapshot (default)
+            const interactiveResult = await client.callTool({
+                name: 'execute',
+                arguments: {
+                    code: js`
+              await state.page.goto('${testCase.url}', { waitUntil: 'domcontentloaded' });
+              const snapshot = await accessibilitySnapshot({ page: state.page, showDiffSinceLastCall: false, interactiveOnly: true });
+              return snapshot;
+            `,
+                },
+            })
 
-    it('should get accessibility snapshot of shadcn UI', async () => {
-        await client.callTool({
-            name: 'execute',
-            arguments: {
-                code: js`
-          const newPage = await context.newPage();
-          state.page = newPage;
-          if (!state.pages) state.pages = [];
-          state.pages.push(newPage);
-        `,
-            },
-        })
+            const interactiveData =
+                typeof interactiveResult === 'object' && interactiveResult.content?.[0]?.text
+                    ? tryJsonParse(interactiveResult.content[0].text)
+                    : interactiveResult
+            await expect(interactiveData).toMatchFileSnapshot(
+                `snapshots/${testCase.name}-accessibility-interactive.md`,
+            )
+            expect(interactiveResult.content).toBeDefined()
+            for (const expected of testCase.expectedContent) {
+                expect(interactiveData).toContain(expected)
+            }
 
-        const snapshot = await client.callTool({
-            name: 'execute',
-            arguments: {
-                code: js`
-          await state.page.goto('https://ui.shadcn.com/', { waitUntil: 'domcontentloaded' });
-          const snapshot = await accessibilitySnapshot({ page: state.page });
-          return snapshot;
-        `,
-            },
-        })
+            // Capture interactiveOnly=false snapshot (full tree)
+            const fullResult = await client.callTool({
+                name: 'execute',
+                arguments: {
+                    code: js`
+              const snapshot = await accessibilitySnapshot({ page: state.page, showDiffSinceLastCall: false, interactiveOnly: false });
+              return snapshot;
+            `,
+                },
+            })
 
-        const data =
-            typeof snapshot === 'object' && snapshot.content?.[0]?.text
-                ? tryJsonParse(snapshot.content[0].text)
-                : snapshot
-        await expect(data).toMatchFileSnapshot('snapshots/shadcn-ui-accessibility.md')
-        expect(snapshot.content).toBeDefined()
-        expect(data).toContain('shadcn')
-    }, 30000)
+            const fullData =
+                typeof fullResult === 'object' && fullResult.content?.[0]?.text
+                    ? tryJsonParse(fullResult.content[0].text)
+                    : fullResult
+            await expect(fullData).toMatchFileSnapshot(
+                `snapshots/${testCase.name}-accessibility-full.md`,
+            )
+            expect(fullResult.content).toBeDefined()
+            for (const expected of testCase.expectedContent) {
+                expect(fullData).toContain(expected)
+            }
+        }, 60000)
+    }
 
     it('should close all created pages', async () => {
         const result = await client.callTool({
