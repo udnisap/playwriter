@@ -75,14 +75,18 @@ export interface AriaRef {
   role: string
   name: string
   ref: string
+  shortRef: string
   backendNodeId?: Protocol.DOM.BackendNodeId
 }
+
+type AriaRefDraft = Omit<AriaRef, 'shortRef'> & { selector?: string }
 
 export type AriaSnapshotNode = {
   role: string
   name: string
   locator?: string
   ref?: string
+  shortRef?: string
   backendNodeId?: Protocol.DOM.BackendNodeId
   children: AriaSnapshotNode[]
 }
@@ -99,7 +103,7 @@ export interface AriaSnapshotResult {
   snapshot: string
   tree: AriaSnapshotNode[]
   refs: AriaRef[]
-  refToElement: Map<string, { role: string; name: string }>
+  refToElement: Map<string, { role: string; name: string; shortRef: string }>
   refToSelector: Map<string, string>
   /**
    * Get a CSS selector for a ref. Use with page.locator().
@@ -125,7 +129,7 @@ type AriaLabel = {
   box: LabelBox
 }
 
-export function buildShortRefMap({ refs }: { refs: AriaRef[] }): Map<string, string> {
+export function buildShortRefMap({ refs }: { refs: Array<{ ref: string }> }): Map<string, string> {
   const map = new Map<string, string>()
   refs.forEach((entry, index) => {
     map.set(entry.ref, `e${index + 1}`)
@@ -344,7 +348,11 @@ function buildLocatorLineText({ line, locator }: { line: SnapshotLine; locator: 
   return `${base} ${locator}`
 }
 
-function finalizeSnapshotOutput(lines: SnapshotLine[], nodes: SnapshotNode[]): { snapshot: string; tree: AriaSnapshotNode[] } {
+function finalizeSnapshotOutput(
+  lines: SnapshotLine[],
+  nodes: SnapshotNode[],
+  shortRefMap: Map<string, string>,
+): { snapshot: string; tree: AriaSnapshotNode[] } {
   const locatorCounts = lines.reduce<Map<string, number>>((acc, line) => {
     if (!line.baseLocator) {
       return acc
@@ -390,6 +398,7 @@ function finalizeSnapshotOutput(lines: SnapshotLine[], nodes: SnapshotNode[]): {
         name: item.name,
         locator,
         ref: item.ref,
+        shortRef: item.ref ? (shortRefMap.get(item.ref) ?? item.ref) : undefined,
         backendNodeId: item.backendNodeId,
         children,
       }
@@ -572,7 +581,7 @@ export async function getAriaSnapshot({ page, locator, refFilter, wsUrl, interac
 
     const refCounts = new Map<string, number>()
     let fallbackCounter = 0
-    const refs: Array<AriaRef & { selector?: string }> = []
+    const refs: AriaRefDraft[] = []
 
     const createRefForNode = (node: Protocol.Accessibility.AXNode, role: string, name: string): string | null => {
       if (!INTERACTIVE_ROLES.has(role)) {
@@ -759,15 +768,22 @@ export async function getAriaSnapshot({ page, locator, refFilter, wsUrl, interac
       }
     }
 
-    const finalized = finalizeSnapshotOutput(snapshotLines, snapshotNodes)
-    const result = { snapshot: finalized.snapshot, tree: finalized.tree, refs }
+    const shortRefMap = buildShortRefMap({ refs })
+    const finalized = finalizeSnapshotOutput(snapshotLines, snapshotNodes, shortRefMap)
+    const refsWithShortRef: Array<AriaRef & { selector?: string }> = refs.map((entry) => {
+      return {
+        ...entry,
+        shortRef: shortRefMap.get(entry.ref) ?? entry.ref,
+      }
+    })
+    const result = { snapshot: finalized.snapshot, tree: finalized.tree, refs: refsWithShortRef }
 
     // Build refToElement map
-    const refToElement = new Map<string, { role: string; name: string }>()
+    const refToElement = new Map<string, { role: string; name: string; shortRef: string }>()
     const refToSelector = new Map<string, string>()
-    for (const { ref, role, name } of result.refs) {
+    for (const { ref, role, name, shortRef } of result.refs) {
       if (!refFilter || refFilter({ role, name })) {
-        refToElement.set(ref, { role, name })
+        refToElement.set(ref, { role, name, shortRef })
       }
     }
 
@@ -1006,7 +1022,9 @@ export async function showAriaRefLabels({ page, locator, interactiveOnly = true,
 
   try {
     const { snapshot, refs } = await getAriaSnapshot({ page, locator, interactiveOnly, wsUrl, cdp })
-    const shortRefMap = buildShortRefMap({ refs })
+    const shortRefMap = new Map(refs.map((entry) => {
+      return [entry.ref, entry.shortRef]
+    }))
     if (log) {
       log(`getAriaSnapshot: ${Date.now() - snapshotStart}ms`)
     }

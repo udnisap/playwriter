@@ -23,7 +23,6 @@ import { getReactSource, type ReactSourceLocation } from './react-source.js'
 import { ScopedFS } from './scoped-fs.js'
 import {
   screenshotWithAccessibilityLabels,
-  buildShortRefMap,
   getAriaSnapshot,
   type ScreenshotResult,
   type SnapshotFormat,
@@ -462,12 +461,10 @@ export class PlaywrightExecutor {
         const snapshotStr = rawSnapshot.toWellFormed?.() ?? rawSnapshot
 
         const refToLocator = new Map<string, string>()
-        const shortRefMap = buildShortRefMap({ refs })
         for (const entry of refs) {
           const locatorStr = getSelectorForRef(entry.ref)
           if (locatorStr) {
-            const shortRef = shortRefMap.get(entry.ref) ?? entry.ref
-            refToLocator.set(shortRef, locatorStr)
+            refToLocator.set(entry.shortRef, locatorStr)
           }
         }
         this.lastRefToLocator.set(targetPage, refToLocator)
