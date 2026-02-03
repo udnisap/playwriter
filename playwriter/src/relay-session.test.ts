@@ -219,28 +219,8 @@ describe('CDP Session Tests', () => {
         })
         await new Promise(r => setTimeout(r, 100))
 
-        const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
-        let cdpPage
-        for (const p of browser.contexts()[0].pages()) {
-            if (p.isClosed()) {
-                continue
-            }
-            await p.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {})
-            let html = ''
-            try {
-                html = await p.content()
-            } catch {
-                continue
-            }
-            if (html.includes('testFunc')) {
-                cdpPage = p
-                break
-            }
-        }
-        expect(cdpPage).toBeDefined()
-
         const wsUrl = getCdpUrl({ port: TEST_PORT })
-        const cdpSession = await getCDPSessionForPage({ page: cdpPage!, wsUrl })
+        const cdpSession = await getCDPSessionForPage({ page, wsUrl })
         const dbg = new Debugger({ cdp: cdpSession })
 
         await dbg.enable()
@@ -260,7 +240,6 @@ describe('CDP Session Tests', () => {
         expect(dbg.listBreakpoints()).toHaveLength(0)
 
         cdpSession.close()
-        await browser.close()
         await page.close()
     }, 60000)
 
@@ -607,15 +586,15 @@ describe('CDP Session Tests', () => {
             cdpSession.on('Debugger.paused', () => resolve())
         })
 
-        await cdpPage!.evaluate(`
-            (function() {
+        const evalPromise = cdpSession.send('Runtime.evaluate', {
+            expression: `(function() {
                 try {
                     throw new Error('Caught test error');
                 } catch (e) {
                     // caught but should still pause with state 'all'
                 }
-            })()
-        `).catch(() => {})
+            })()`
+        })
 
         await Promise.race([
             pausedPromise,
@@ -628,6 +607,7 @@ describe('CDP Session Tests', () => {
         expect(location.sourceContext).toContain('throw')
 
         await dbg.resume()
+        await evalPromise
 
         await dbg.setPauseOnExceptions({ state: 'none' })
 
