@@ -229,7 +229,7 @@ await loginPage.waitForURL('**/callback**');
 After any action (click, submit, navigate), verify what happened:
 
 ```js
-console.log('url:', page.url()); console.log(await accessibilitySnapshot({ page }).then(x => x.split('\n').slice(0, 30).join('\n')));
+console.log('url:', page.url()); console.log(await accessibilitySnapshot({ page }));
 ```
 
 For visually complex pages (grids, galleries, dashboards), use `screenshotWithAccessibilityLabels({ page })` instead to understand spatial layout. Label refs are short `eN` strings (e.g. `e3`).
@@ -243,13 +243,9 @@ await accessibilitySnapshot({ page, search?, showDiffSinceLastCall? })
 ```
 
 - `search` - string/regex to filter results (returns first 10 matching lines)
-- `showDiffSinceLastCall` - returns diff since last snapshot (useful after actions)
+- `showDiffSinceLastCall` - returns diff since last snapshot (default: `true`). Pass `false` to get full snapshot.
 
-For pagination, use `.split('\n').slice(offset, offset + limit).join('\n')`:
-```js
-console.log((await accessibilitySnapshot({ page })).split('\n').slice(0, 50).join('\n'));   // first 50 lines
-console.log((await accessibilitySnapshot({ page })).split('\n').slice(50, 100).join('\n')); // next 50 lines
-```
+Snapshots automatically return diffs after the first call. The diff is returned only when it's shorter than the full content.
 
 Example output:
 
@@ -477,13 +473,13 @@ await getCleanHTML({ locator, search?, showDiffSinceLastCall?, includeStyles? })
 // Examples:
 const html = await getCleanHTML({ locator: page.locator('body') })
 const html = await getCleanHTML({ locator: page, search: /button/i })
-const diff = await getCleanHTML({ locator: page, showDiffSinceLastCall: true })
+const fullHtml = await getCleanHTML({ locator: page, showDiffSinceLastCall: false })  // disable diff
 ```
 
 **Parameters:**
 - `locator` - Playwright Locator or Page to get HTML from
 - `search` - string/regex to filter results (returns first 10 matching lines with 5 lines context)
-- `showDiffSinceLastCall` - returns unified diff since last call for same locator/page. First call stores snapshot and returns message; subsequent calls return the diff. Useful for tracking DOM changes after actions.
+- `showDiffSinceLastCall` - returns diff since last call (default: `true`). Pass `false` to get full HTML.
 - `includeStyles` - keep style and class attributes (default: false)
 
 **HTML processing:**
@@ -498,20 +494,15 @@ The function cleans HTML for compact, readable output:
 - All `data-*` test attributes
 - Frequently used test IDs and special attributes (e.g., `testid`, `qa`, `e2e`, `vimium-label`)
 
-For pagination, use `.split('\n').slice(offset, offset + limit).join('\n')`:
-```js
-console.log((await getCleanHTML({ locator: page })).split('\n').slice(0, 50).join('\n'));   // first 50 lines
-console.log((await getCleanHTML({ locator: page })).split('\n').slice(50, 100).join('\n')); // next 50 lines
-```
+Snapshots automatically return diffs after the first call. The diff is returned only when it's shorter than the full content.
 
 **getPageMarkdown** - extract main page content as plain text using Mozilla Readability (same algorithm as Firefox Reader View). Strips navigation, ads, sidebars, and other clutter. Returns formatted text with title, author, and content:
 
 ```js
 await getPageMarkdown({ page, search?, showDiffSinceLastCall? })
 // Examples:
-const content = await getPageMarkdown({ page })  // full article as plain text
+const content = await getPageMarkdown({ page, showDiffSinceLastCall: false })  // full article
 const matches = await getPageMarkdown({ page, search: /API/i })  // search within content
-const diff = await getPageMarkdown({ page, showDiffSinceLastCall: true })  // track content changes
 ```
 
 **Output format:**
@@ -528,7 +519,9 @@ The main article content as plain text, with paragraphs preserved...
 **Parameters:**
 - `page` - Playwright Page to extract content from
 - `search` - string/regex to filter content (returns first 10 matching lines with 5 lines context)
-- `showDiffSinceLastCall` - returns unified diff since last call. Useful for tracking content changes.
+- `showDiffSinceLastCall` - returns diff since last call (default: `true`). Pass `false` to get full content.
+
+Snapshots automatically return diffs after the first call. The diff is returned only when it's shorter than the full content.
 
 **Use cases:**
 - Extract article text for LLM processing without HTML noise

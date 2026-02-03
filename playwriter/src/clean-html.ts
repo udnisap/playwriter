@@ -36,7 +36,7 @@ export async function getCleanHTML(options: GetCleanHTMLOptions): Promise<string
   const {
     locator,
     search,
-    showDiffSinceLastCall = false,
+    showDiffSinceLastCall = true,
     includeStyles = false,
     maxAttrLen = 200,
     maxContentLen = 500,

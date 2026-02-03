@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Page } from 'playwright-core'
-import { createPatch } from 'diff'
+import { createSmartDiff } from './diff-utils.js'
 
 export interface PageMarkdownResult {
   /** Extracted content as plain text (HTML tags stripped) */
@@ -70,7 +70,7 @@ function isRegExp(value: unknown): value is RegExp {
  * the main content. Returns plain text content (no HTML).
  */
 export async function getPageMarkdown(options: GetPageMarkdownOptions): Promise<string> {
-  const { page, search, showDiffSinceLastCall = false } = options
+  const { page, search, showDiffSinceLastCall = true } = options
 
   // Check if readability is already injected
   const hasReadability = await page.evaluate(() => !!(globalThis as any).__readability)
@@ -177,16 +177,15 @@ export async function getPageMarkdown(options: GetPageMarkdownOptions): Promise<
       return 'No previous snapshot available. This is the first call. Full snapshot stored for next diff.'
     }
 
-    const patch = createPatch('content', previousSnapshot, markdown, 'previous', 'current', {
-      context: 3,
+    const diffResult = createSmartDiff({
+      oldContent: previousSnapshot,
+      newContent: markdown,
+      label: 'content',
     })
 
     lastMarkdownSnapshots.set(page, markdown)
 
-    if (patch.split('\n').length <= 4) {
-      return 'No changes detected since last snapshot'
-    }
-    return patch
+    return diffResult.content
   }
 
   // Store snapshot for future diffs

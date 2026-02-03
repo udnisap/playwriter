@@ -450,7 +450,7 @@ export class PlaywrightExecutor {
         /** Only include interactive elements (default: true) */
         interactiveOnly?: boolean
       }) => {
-        const { page: targetPage, locator, search, showDiffSinceLastCall = false, interactiveOnly = true } = options
+        const { page: targetPage, locator, search, showDiffSinceLastCall = true, interactiveOnly = true } = options
 
         // Use new in-page implementation via getAriaSnapshot
         const { snapshot: rawSnapshot, refs, getSelectorForRef } = await getAriaSnapshot({
@@ -745,7 +745,7 @@ export class PlaywrightExecutor {
         responseText += `Accessibility snapshot:\n${screenshot.snapshot}\n`
       }
 
-      const MAX_LENGTH = 6000
+      const MAX_LENGTH = 10000
       let finalText = responseText.trim()
       if (finalText.length > MAX_LENGTH) {
         finalText =
