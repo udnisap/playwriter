@@ -168,28 +168,19 @@ export async function getPageMarkdown(options: GetPageMarkdownOptions): Promise<
   // Sanitize to remove unpaired surrogates that break JSON encoding
   markdown = markdown.toWellFormed?.() ?? markdown
 
-  // Handle diffing
-  if (showDiffSinceLastCall) {
-    const previousSnapshot = lastMarkdownSnapshots.get(page)
+  // Store snapshot and handle diffing
+  const previousSnapshot = lastMarkdownSnapshots.get(page)
+  lastMarkdownSnapshots.set(page, markdown)
 
-    if (!previousSnapshot) {
-      lastMarkdownSnapshots.set(page, markdown)
-      return 'No previous snapshot available. This is the first call. Full snapshot stored for next diff.'
-    }
-
+  // Return diff if we have a previous snapshot and diff mode is enabled
+  if (showDiffSinceLastCall && previousSnapshot) {
     const diffResult = createSmartDiff({
       oldContent: previousSnapshot,
       newContent: markdown,
       label: 'content',
     })
-
-    lastMarkdownSnapshots.set(page, markdown)
-
     return diffResult.content
   }
-
-  // Store snapshot for future diffs
-  lastMarkdownSnapshots.set(page, markdown)
 
   // Handle search
   if (search) {

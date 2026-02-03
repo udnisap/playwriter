@@ -65,40 +65,26 @@ export async function getCleanHTML(options: GetCleanHTMLOptions): Promise<string
   // Sanitize to remove unpaired surrogates that break JSON encoding
   let htmlStr = cleanedHtml.toWellFormed?.() ?? cleanedHtml
 
-  // Handle diffing
-  if (showDiffSinceLastCall) {
-    let pageSnapshots = lastHtmlSnapshots.get(page)
-    if (!pageSnapshots) {
-      pageSnapshots = new Map()
-      lastHtmlSnapshots.set(page, pageSnapshots)
-    }
-
-    const snapshotKey = getSnapshotKey(locator)
-    const previousSnapshot = pageSnapshots.get(snapshotKey)
-
-    if (!previousSnapshot) {
-      pageSnapshots.set(snapshotKey, htmlStr)
-      return 'No previous snapshot available. This is the first call for this locator. Full snapshot stored for next diff.'
-    }
-
-    const diffResult = createSmartDiff({
-      oldContent: previousSnapshot,
-      newContent: htmlStr,
-      label: 'html',
-    })
-
-    pageSnapshots.set(snapshotKey, htmlStr)
-
-    return diffResult.content
-  }
-
-  // Store snapshot for future diffs
+  // Store snapshot and handle diffing
   let pageSnapshots = lastHtmlSnapshots.get(page)
   if (!pageSnapshots) {
     pageSnapshots = new Map()
     lastHtmlSnapshots.set(page, pageSnapshots)
   }
-  pageSnapshots.set(getSnapshotKey(locator), htmlStr)
+
+  const snapshotKey = getSnapshotKey(locator)
+  const previousSnapshot = pageSnapshots.get(snapshotKey)
+  pageSnapshots.set(snapshotKey, htmlStr)
+
+  // Return diff if we have a previous snapshot and diff mode is enabled
+  if (showDiffSinceLastCall && previousSnapshot) {
+    const diffResult = createSmartDiff({
+      oldContent: previousSnapshot,
+      newContent: htmlStr,
+      label: 'html',
+    })
+    return diffResult.content
+  }
 
   // Handle search
   if (search) {

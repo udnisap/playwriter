@@ -245,7 +245,7 @@ await accessibilitySnapshot({ page, search?, showDiffSinceLastCall? })
 - `search` - string/regex to filter results (returns first 10 matching lines)
 - `showDiffSinceLastCall` - returns diff since last snapshot (default: `true`). Pass `false` to get full snapshot.
 
-Snapshots automatically return diffs after the first call. The diff is returned only when it's shorter than the full content.
+Snapshots return full content on first call, then diffs on subsequent calls. Diff is only returned when shorter than full content.
 
 Example output:
 
@@ -494,7 +494,7 @@ The function cleans HTML for compact, readable output:
 - All `data-*` test attributes
 - Frequently used test IDs and special attributes (e.g., `testid`, `qa`, `e2e`, `vimium-label`)
 
-Snapshots automatically return diffs after the first call. The diff is returned only when it's shorter than the full content.
+Snapshots return full content on first call, then diffs on subsequent calls. Diff is only returned when shorter than full content.
 
 **getPageMarkdown** - extract main page content as plain text using Mozilla Readability (same algorithm as Firefox Reader View). Strips navigation, ads, sidebars, and other clutter. Returns formatted text with title, author, and content:
 
@@ -521,7 +521,7 @@ The main article content as plain text, with paragraphs preserved...
 - `search` - string/regex to filter content (returns first 10 matching lines with 5 lines context)
 - `showDiffSinceLastCall` - returns diff since last call (default: `true`). Pass `false` to get full content.
 
-Snapshots automatically return diffs after the first call. The diff is returned only when it's shorter than the full content.
+Snapshots return full content on first call, then diffs on subsequent calls. Diff is only returned when shorter than full content.
 
 **Use cases:**
 - Extract article text for LLM processing without HTML noise

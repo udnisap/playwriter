@@ -472,22 +472,18 @@ export class PlaywrightExecutor {
         }
         this.lastRefToLocator.set(targetPage, refToLocator)
 
-        if (showDiffSinceLastCall) {
-          const previousSnapshot = this.lastSnapshots.get(targetPage)
-          if (!previousSnapshot) {
-            this.lastSnapshots.set(targetPage, snapshotStr)
-            return 'No previous snapshot available. This is the first call for this page. Full snapshot stored for next diff.'
-          }
+        const previousSnapshot = this.lastSnapshots.get(targetPage)
+        this.lastSnapshots.set(targetPage, snapshotStr)
+
+        // Return diff if we have a previous snapshot and diff mode is enabled
+        if (showDiffSinceLastCall && previousSnapshot) {
           const diffResult = createSmartDiff({
             oldContent: previousSnapshot,
             newContent: snapshotStr,
             label: 'snapshot',
           })
-          this.lastSnapshots.set(targetPage, snapshotStr)
           return diffResult.content
         }
-
-        this.lastSnapshots.set(targetPage, snapshotStr)
 
         if (!search) {
           return `${snapshotStr}\n\nuse refToLocator({ ref: 'e3' }) to get locators for ref strings.`
