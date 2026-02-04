@@ -2,10 +2,52 @@
  * Ghost Browser Extension APIs Type Definitions
  *
  * Source: Extracted from Ghost Browser.app binary
- * Location: /Applications/Ghost Browser.app/Contents/Frameworks/Ghost Browser Framework.framework
+ * https://ghostbrowser.com/
  *
- * These APIs are available to extensions running in Ghost Browser.
- * Check availability with: typeof chrome.ghostPublicAPI !== 'undefined'
+ * These APIs are available in Playwriter's executor sandbox when running in Ghost Browser.
+ * Use for multi-identity automation: managing multiple accounts, rotating proxies, isolated sessions.
+ *
+ * ## Quick Start
+ *
+ * ```js
+ * // List all identities
+ * const identities = await chrome.projects.getIdentitiesList();
+ *
+ * // Open tab in new temporary identity
+ * await chrome.ghostPublicAPI.openTab({
+ *   url: 'https://reddit.com',
+ *   identity: chrome.ghostPublicAPI.NEW_TEMPORARY_IDENTITY
+ * });
+ *
+ * // Open tab in specific identity
+ * await chrome.ghostPublicAPI.openTab({
+ *   url: 'https://twitter.com',
+ *   identity: identities[0].id
+ * });
+ *
+ * // List and assign proxies
+ * const proxies = await chrome.ghostProxies.getList();
+ * await chrome.ghostProxies.setTabProxy(tabId, proxies[0].id);
+ * await chrome.ghostProxies.setIdentityProxy(identities[0].id, proxies[0].id);
+ *
+ * // Use direct connection (no proxy)
+ * await chrome.ghostProxies.setTabProxy(tabId, chrome.ghostProxies.DIRECT_PROXY);
+ * ```
+ *
+ * ## API Namespaces
+ *
+ * - `chrome.ghostPublicAPI` - Open tabs in specific identities
+ * - `chrome.ghostProxies` - Manage and assign proxies per tab/identity/session
+ * - `chrome.projects` - List/manage identities, sessions, workspaces
+ *
+ * ## Use Cases
+ *
+ * - Managing multiple social media accounts (Reddit, Twitter, etc.)
+ * - Web scraping with rotating proxies per tab
+ * - Testing with different user sessions simultaneously
+ * - Automation requiring isolated cookies/storage per identity
+ *
+ * Note: These APIs only work in Ghost Browser. In regular Chrome, calls fail with "not available".
  */
 
 declare namespace chrome {

@@ -725,92 +725,22 @@ Examples of what playwriter can do:
 
 ## Ghost Browser integration
 
-Playwriter supports [Ghost Browser](https://ghostbrowser.com/) for multi-identity automation. When running in Ghost Browser, you can control identities, proxies, and sessions programmatically via the `chrome` object in the sandbox.
-
-**Use cases:**
-- Managing multiple social media accounts (Reddit, Twitter, etc.)
-- Web scraping with rotating proxies per tab
-- Testing with different user sessions simultaneously
-- Automation requiring isolated cookies/storage per identity
-
-**API namespaces available:**
-- `chrome.ghostPublicAPI` - Open tabs in specific identities
-- `chrome.ghostProxies` - Manage and assign proxies per tab/identity
-- `chrome.projects` - List/manage identities, sessions, workspaces
-
-**Example - Open tabs in different identities:**
+Playwriter supports [Ghost Browser](https://ghostbrowser.com/) for multi-identity automation. When running in Ghost Browser, the `chrome` object exposes APIs to control identities, proxies, and sessions - useful for managing multiple accounts, rotating proxies, or isolated cookie sessions.
 
 ```js
-// List all configured identities
+// List identities and open tabs in different ones
 const identities = await chrome.projects.getIdentitiesList();
-console.log(identities.map(i => ({ id: i.id, name: i.name })));
+await chrome.ghostPublicAPI.openTab({ url: 'https://reddit.com', identity: identities[0].id });
 
-// Open tab in a new temporary identity
-const tabId = await chrome.ghostPublicAPI.openTab({
-  url: 'https://reddit.com',
-  identity: chrome.ghostPublicAPI.NEW_TEMPORARY_IDENTITY
-});
-
-// Open tab in a specific identity
-await chrome.ghostPublicAPI.openTab({
-  url: 'https://twitter.com',
-  identity: identities[0].id
-});
-```
-
-**Example - Set proxies per tab:**
-
-```js
-// List all configured proxies
+// Assign proxies per tab or identity
 const proxies = await chrome.ghostProxies.getList();
-console.log(proxies.map(p => ({ id: p.id, name: p.name, uri: p.uri })));
-
-// Set proxy for a specific tab (use current page's tab ID)
-const tabId = 123; // get from page or chrome.tabs
 await chrome.ghostProxies.setTabProxy(tabId, proxies[0].id);
-
-// Set proxy for an entire identity (all tabs in that identity)
-await chrome.ghostProxies.setIdentityProxy(identities[0].id, proxies[0].id);
-
-// Use direct connection (no proxy)
-await chrome.ghostProxies.setTabProxy(tabId, chrome.ghostProxies.DIRECT_PROXY);
 ```
 
-**Example - Multi-account Reddit automation:**
+For complete API reference with all methods, types, and examples, read:
+`extension/src/ghost-browser-api.d.ts`
 
-```js
-// Get identities for different Reddit accounts
-const identities = await chrome.projects.getIdentitiesList();
-const redditIdentities = identities.filter(i => i.name.includes('reddit'));
-
-// Open each account in its own identity with isolated cookies
-for (const identity of redditIdentities) {
-  await chrome.ghostPublicAPI.openTab({
-    url: 'https://reddit.com',
-    identity: identity.id
-  });
-}
-```
-
-**Constants:**
-
-```js
-chrome.ghostPublicAPI.NEW_TEMPORARY_IDENTITY  // "OpenInNewSession"
-chrome.ghostPublicAPI.DEFAULT_IDENTITY        // ""
-chrome.ghostPublicAPI.MAX_TEMPORARY_IDENTITIES // 25
-
-chrome.ghostProxies.DIRECT_PROXY  // UUID for no proxy
-chrome.ghostProxies.SYSTEM_PROXY  // UUID for system proxy
-
-chrome.projects.SESSIONS_MAX   // 25
-chrome.projects.NEW_SESSION    // "OpenInNewSession"
-chrome.projects.GLOBAL_SESSION // ""
-```
-
-For the complete API reference including all methods, parameters, and types, read the type definitions file:
-`/Users/morse/Documents/GitHub/playwriter/extension/src/ghost-browser-api.d.ts`
-
-**Note:** These APIs only work when running Playwriter in Ghost Browser. In regular Chrome, calls will fail with "not available" errors.
+Note: Only works in Ghost Browser. In regular Chrome, calls fail with "not available".
 
 ## debugging playwriter issues
 
