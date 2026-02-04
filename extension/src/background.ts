@@ -4,6 +4,7 @@ import { createStore } from 'zustand/vanilla'
 import type { ExtensionState, ConnectionState, TabState, TabInfo } from './types'
 import type { CDPEvent, Protocol } from 'playwriter/src/cdp-types'
 import type { ExtensionCommandMessage, ExtensionResponseMessage } from 'playwriter/src/protocol'
+import { handleGhostBrowserCommand, type GhostBrowserCommandParams } from 'playwriter/src/ghost-browser'
 import {
   getActiveRecordings,
   handleStartRecording,
@@ -278,51 +279,14 @@ class ConnectionManager {
       // This allows calling chrome.ghostPublicAPI, chrome.ghostProxies, chrome.projects
       // from the playwriter executor sandbox when running in Ghost Browser
       if (message.method === 'ghost-browser') {
-        const { namespace, method, args } = message.params as {
-          namespace: 'ghostPublicAPI' | 'ghostProxies' | 'projects'
-          method: string
-          args: unknown[]
+        const result = await handleGhostBrowserCommand(
+          message.params as GhostBrowserCommandParams,
+          chrome
+        )
+        if (!result.success) {
+          logger.error('Ghost Browser API error:', result.error)
         }
-        try {
-          const api = (chrome as any)[namespace]
-          if (!api) {
-            sendMessage({
-              id: message.id,
-              result: { success: false, error: `chrome.${namespace} not available (not running in Ghost Browser?)` }
-            })
-            return
-          }
-
-          const fn = api[method]
-          if (typeof fn !== 'function') {
-            // Check if it's a constant/property
-            if (method in api) {
-              sendMessage({ id: message.id, result: { success: true, result: api[method] } })
-              return
-            }
-            sendMessage({
-              id: message.id,
-              result: { success: false, error: `chrome.${namespace}.${method} is not a function or property` }
-            })
-            return
-          }
-
-          // Ghost Browser APIs use callback pattern, wrap in Promise
-          const result = await new Promise((resolve, reject) => {
-            fn.call(api, ...args, (result: unknown) => {
-              if (chrome.runtime.lastError) {
-                reject(new Error(chrome.runtime.lastError.message))
-              } else {
-                resolve(result)
-              }
-            })
-          })
-
-          sendMessage({ id: message.id, result: { success: true, result } })
-        } catch (error: any) {
-          logger.error('Ghost Browser API error:', error)
-          sendMessage({ id: message.id, result: { success: false, error: error.message } })
-        }
+        sendMessage({ id: message.id, result })
         return
       }
 

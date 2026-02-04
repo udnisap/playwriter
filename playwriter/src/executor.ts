@@ -28,6 +28,7 @@ import {
   type ScreenshotResult,
   type SnapshotFormat,
 } from './aria-snapshot.js'
+import { createGhostBrowserChrome, type GhostBrowserCommandResult } from './ghost-browser.js'
 export type { SnapshotFormat }
 import { getCleanHTML, type GetCleanHTMLOptions } from './clean-html.js'
 import { getPageMarkdown, type GetPageMarkdownOptions } from './page-markdown.js'
@@ -741,55 +742,17 @@ export class PlaywrightExecutor {
       }
       const self = this
 
-      // Ghost Browser API integration - creates proxy objects that mirror chrome.ghostPublicAPI,
-      // chrome.ghostProxies, and chrome.projects APIs. Only works when running in Ghost Browser.
-      // See extension/src/ghost-browser-api.d.ts for full API documentation.
-      const createGhostBrowserProxy = (
-        namespace: 'ghostPublicAPI' | 'ghostProxies' | 'projects',
-        constants: Record<string, unknown> = {}
-      ) => {
-        const sendGhostBrowserCommand = async (method: string, args: unknown[]) => {
-          const cdp = await getCDPSession({ page })
-          const result = await cdp.send('ghost-browser' as any, { namespace, method, args })
-          const typed = result as { success: boolean; result?: unknown; error?: string }
-          if (!typed.success) {
-            throw new Error(typed.error || `Ghost Browser API call failed: ${namespace}.${method}`)
-          }
-          return typed.result
+      // Ghost Browser API - creates chrome object that mirrors Ghost Browser's APIs
+      // See extension/src/ghost-browser-api.d.ts for full API documentation
+      const chromeGhostBrowser = createGhostBrowserChrome(async (namespace, method, args) => {
+        const cdp = await getCDPSession({ page })
+        const result = await cdp.send('ghost-browser' as any, { namespace, method, args })
+        const typed = result as GhostBrowserCommandResult
+        if (!typed.success) {
+          throw new Error(typed.error || `Ghost Browser API call failed: ${namespace}.${method}`)
         }
-
-        return new Proxy(constants, {
-          get(target, prop: string) {
-            // Return constants directly (no await needed)
-            if (prop in target) {
-              return target[prop]
-            }
-            // Return function that sends ghost-browser command
-            return (...args: unknown[]) => sendGhostBrowserCommand(prop, args)
-          }
-        })
-      }
-
-      // Chrome object with Ghost Browser API namespaces
-      // These mirror the exact shape of chrome.ghostPublicAPI, chrome.ghostProxies, chrome.projects
-      const chromeGhostBrowser = {
-        ghostPublicAPI: createGhostBrowserProxy('ghostPublicAPI', {
-          NEW_TEMPORARY_IDENTITY: 'OpenInNewSession',
-          DEFAULT_IDENTITY: '',
-          MAX_TEMPORARY_IDENTITIES: 25,
-        }),
-        ghostProxies: createGhostBrowserProxy('ghostProxies', {
-          DIRECT_PROXY: '8f513494-8cf5-41c7-b318-936392222104',
-          SYSTEM_PROXY: '2485b989-7ffb-4442-a45a-d7f9a10c6171',
-        }),
-        projects: createGhostBrowserProxy('projects', {
-          PROJECT_ID_HOME: 'f0673216-13b9-48be-aa41-90763e229e78',
-          PROJECT_ID_UNSAVED: 'fe061488-8a8e-40f0-9e5e-93a1a5e2c273',
-          SESSIONS_MAX: 25,
-          NEW_SESSION: 'OpenInNewSession',
-          GLOBAL_SESSION: '',
-        }),
-      }
+        return typed.result
+      })
 
       let vmContextObj: any = {
         page,
