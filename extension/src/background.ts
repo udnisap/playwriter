@@ -274,6 +274,58 @@ class ConnectionManager {
         return
       }
 
+      // Handle Ghost Browser API commands
+      // This allows calling chrome.ghostPublicAPI, chrome.ghostProxies, chrome.projects
+      // from the playwriter executor sandbox when running in Ghost Browser
+      if (message.method === 'ghost-browser') {
+        const { namespace, method, args } = message.params as {
+          namespace: 'ghostPublicAPI' | 'ghostProxies' | 'projects'
+          method: string
+          args: unknown[]
+        }
+        try {
+          const api = (chrome as any)[namespace]
+          if (!api) {
+            sendMessage({
+              id: message.id,
+              result: { success: false, error: `chrome.${namespace} not available (not running in Ghost Browser?)` }
+            })
+            return
+          }
+
+          const fn = api[method]
+          if (typeof fn !== 'function') {
+            // Check if it's a constant/property
+            if (method in api) {
+              sendMessage({ id: message.id, result: { success: true, result: api[method] } })
+              return
+            }
+            sendMessage({
+              id: message.id,
+              result: { success: false, error: `chrome.${namespace}.${method} is not a function or property` }
+            })
+            return
+          }
+
+          // Ghost Browser APIs use callback pattern, wrap in Promise
+          const result = await new Promise((resolve, reject) => {
+            fn.call(api, ...args, (result: unknown) => {
+              if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message))
+              } else {
+                resolve(result)
+              }
+            })
+          })
+
+          sendMessage({ id: message.id, result: { success: true, result } })
+        } catch (error: any) {
+          logger.error('Ghost Browser API error:', error)
+          sendMessage({ id: message.id, result: { success: false, error: error.message } })
+        }
+        return
+      }
+
       const response: ExtensionResponseMessage = { id: message.id }
       try {
         response.result = await handleCommand(message as ExtensionCommandMessage)
