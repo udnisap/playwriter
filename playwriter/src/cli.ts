@@ -55,11 +55,11 @@ async function fetchExtensionsStatus(host?: string): Promise<Array<{
   try {
     const serverUrl = await getServerUrl(host)
     const response = await fetch(`${serverUrl}/extensions/status`, {
-      signal: AbortSignal.timeout(500),
+      signal: AbortSignal.timeout(2000),
     })
     if (!response.ok) {
       const fallback = await fetch(`${serverUrl}/extension/status`, {
-        signal: AbortSignal.timeout(500),
+        signal: AbortSignal.timeout(2000),
       })
       if (!fallback.ok) {
         return []
@@ -231,21 +231,14 @@ cli
       process.exit(1)
     }
 
-    if (!options.host && !process.env.PLAYWRITER_HOST) {
-      await ensureRelayServer({ logger: console, env: cliRelayEnv })
-      const connected = await waitForExtension({ logger: console, timeoutMs: 10000 })
-      if (!connected) {
-        console.error('Warning: Extension not connected. Commands may fail.')
-      }
-    }
-
     try {
       const serverUrl = await getServerUrl(options.host)
       const extensionId = selectedExtension.extensionId === 'default' ? null : selectedExtension.extensionId
+      const cwd = process.cwd()
       const response = await fetch(`${serverUrl}/cli/session/new`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ extensionId }),
+        body: JSON.stringify({ extensionId, cwd }),
       })
       if (!response.ok) {
         const text = await response.text()
@@ -279,7 +272,7 @@ cli
 
     try {
       const response = await fetch(`${serverUrl}/cli/sessions`, {
-        signal: AbortSignal.timeout(500),
+        signal: AbortSignal.timeout(2000),
       })
       if (!response.ok) {
         console.error(`Error: ${response.status} ${await response.text()}`)

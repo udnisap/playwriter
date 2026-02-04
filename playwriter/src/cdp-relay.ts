@@ -107,9 +107,11 @@ export async function startPlayWriterCDPRelayServer({
   }
 
   const getExtensionConnection = (extensionId?: string | null): ExtensionConnection | null => {
-    if (extensionId && extensionConnections.has(extensionId)) {
+    // If specific extensionId requested, only return that one (no fallback)
+    if (extensionId) {
       return extensionConnections.get(extensionId) || null
     }
+    // Only fallback to default when no extensionId specified
     const fallbackId = getDefaultExtensionId()
     if (fallbackId) {
       return extensionConnections.get(fallbackId) || null
@@ -1224,6 +1226,15 @@ export async function startPlayWriterCDPRelayServer({
         logger?.log(`Extension disconnected: code=${event.code} reason=${event.reason || 'none'} (${connectionId})`)
         stopExtensionPing(connectionId)
 
+        // Cancel any active recordings BEFORE removing connection (cancelRecording checks isExtensionConnected)
+        const recordingRelay = recordingRelays.get(connectionId)
+        if (recordingRelay) {
+          recordingRelay.cancelRecording({}).catch(() => {
+            // Ignore errors during cleanup
+          })
+        }
+        recordingRelays.delete(connectionId)
+
         const connection = extensionConnections.get(connectionId)
         if (connection) {
           for (const pending of connection.pendingRequests.values()) {
@@ -1234,7 +1245,6 @@ export async function startPlayWriterCDPRelayServer({
         }
 
         extensionConnections.delete(connectionId)
-        recordingRelays.delete(connectionId)
 
         for (const [clientId, client] of playwrightClients.entries()) {
           if (client.extensionId !== connectionId) {
@@ -1275,28 +1285,19 @@ export async function startPlayWriterCDPRelayServer({
 
   app.post('/cli/execute', async (c) => {
     try {
-      const body = await c.req.json() as { sessionId: string; code: string; timeout?: number; cwd?: string }
-      const { sessionId, code, timeout = 10000, cwd } = body
+      const body = await c.req.json() as { sessionId: string; code: string; timeout?: number }
+      const { sessionId, code, timeout = 10000 } = body
 
       if (!sessionId || !code) {
         return c.json({ error: 'sessionId and code are required' }, 400)
       }
 
       const manager = await getExecutorManager()
-      const defaultExtension = getExtensionConnection(null)
-      const executor = manager.getExecutor({
-        sessionId,
-        cwd,
-        sessionMetadata: {
-          extensionId: defaultExtension?.id || null,
-          browser: defaultExtension?.info.browser || null,
-          profile: defaultExtension?.info ? { email: defaultExtension.info.email || '', id: defaultExtension.info.id || '' } : null,
-        },
-      })
-      const result = await executor.execute(code, timeout)
-
-      // Increment session counter after each execution to avoid conflicts
-      nextSessionNumber++
+      const existingExecutor = manager.getSession(sessionId)
+      if (!existingExecutor) {
+        return c.json({ text: `Session ${sessionId} not found. Run 'playwriter session new' first.`, images: [], isError: true }, 404)
+      }
+      const result = await existingExecutor.execute(code, timeout)
 
       return c.json(result)
     } catch (error: any) {
@@ -1307,25 +1308,19 @@ export async function startPlayWriterCDPRelayServer({
 
   app.post('/cli/reset', async (c) => {
     try {
-      const body = await c.req.json() as { sessionId: string; cwd?: string }
-      const { sessionId, cwd } = body
+      const body = await c.req.json() as { sessionId: string }
+      const { sessionId } = body
 
       if (!sessionId) {
         return c.json({ error: 'sessionId is required' }, 400)
       }
 
       const manager = await getExecutorManager()
-      const defaultExtension = getExtensionConnection(null)
-      const executor = manager.getExecutor({
-        sessionId,
-        cwd,
-        sessionMetadata: {
-          extensionId: defaultExtension?.id || null,
-          browser: defaultExtension?.info.browser || null,
-          profile: defaultExtension?.info ? { email: defaultExtension.info.email || '', id: defaultExtension.info.id || '' } : null,
-        },
-      })
-      const { page, context } = await executor.reset()
+      const existingExecutor = manager.getSession(sessionId)
+      if (!existingExecutor) {
+        return c.json({ error: `Session ${sessionId} not found. Run 'playwriter session new' first.` }, 404)
+      }
+      const { page, context } = await existingExecutor.reset()
 
       return c.json({
         success: true,
@@ -1348,9 +1343,10 @@ export async function startPlayWriterCDPRelayServer({
   })
 
   app.post('/cli/session/new', async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { extensionId?: string | null }
+    const body = await c.req.json().catch(() => ({})) as { extensionId?: string | null; cwd?: string }
     const sessionId = String(nextSessionNumber++)
     const extensionId = body.extensionId || null
+    const cwd = body.cwd
     const extension = getExtensionConnection(extensionId)
     if (!extension) {
       return c.json({ error: 'Extension not connected' }, 404)
@@ -1358,6 +1354,7 @@ export async function startPlayWriterCDPRelayServer({
     const manager = await getExecutorManager()
     const executor = manager.getExecutor({
       sessionId,
+      cwd,
       sessionMetadata: {
         extensionId: extension.id,
         browser: extension.info.browser || null,
