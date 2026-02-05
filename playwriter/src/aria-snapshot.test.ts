@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import http from 'node:http'
+import net from 'node:net'
 import { Page } from 'playwright-core'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -11,6 +13,60 @@ const TEST_PORT = 19986
 const SNAPSHOTS_DIR = path.join(import.meta.dirname, 'aria-snapshots')
 const AX_DEBUG_DIR = path.join(import.meta.dirname, '__snapshots__', 'ax-debug')
 const SHOULD_DUMP_AX = process.env.PLAYWRITER_DUMP_AX === '1'
+
+type HtmlServer = {
+  baseUrl: string
+  close: () => Promise<void>
+}
+
+async function createHtmlServer({ htmlByPath }: { htmlByPath: Record<string, string> }): Promise<HtmlServer> {
+  const openSockets: Set<net.Socket> = new Set()
+  const server = http.createServer((req, res) => {
+    const requestUrl = req.url || '/'
+    const html = htmlByPath[requestUrl]
+    if (!html) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' })
+      res.end('Not found')
+      return
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html' })
+    res.end(html)
+  })
+
+  server.on('connection', (socket) => {
+    openSockets.add(socket)
+    socket.on('close', () => {
+      openSockets.delete(socket)
+    })
+  })
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve)
+  })
+
+  const address = server.address()
+  if (!address || typeof address === 'string') {
+    throw new Error('Failed to bind test server')
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () => {
+      for (const socket of openSockets) {
+        socket.destroy()
+      }
+      return new Promise((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve()
+        })
+      })
+    }
+  }
+}
 
 describe('aria-snapshot', () => {
   let ctx: TestContext
@@ -83,4 +139,64 @@ describe('aria-snapshot', () => {
       fs.writeFileSync(path.join(SNAPSHOTS_DIR, `${site.name}-interactive.txt`), interactiveSnapshot)
     }, 30000)
   }
+
+  it('scopes snapshot to cross-origin iframe locator', async () => {
+    const iframeServer = await createHtmlServer({
+      htmlByPath: {
+        '/iframe.html': `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Iframe Content</title>
+  </head>
+  <body>
+    <h1>Iframe Heading</h1>
+    <button data-testid="iframe-button">Iframe Button</button>
+  </body>
+</html>`,
+      },
+    })
+
+    const outerServer = await createHtmlServer({
+      htmlByPath: {
+        '/': `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Outer Page</title>
+  </head>
+  <body>
+    <h1>Outer Heading</h1>
+    <iframe data-testid="external-iframe" src="${iframeServer.baseUrl}/iframe.html"></iframe>
+  </body>
+</html>`,
+      },
+    })
+
+    try {
+      await page.goto(outerServer.baseUrl, { waitUntil: 'domcontentloaded', timeout: 10000 })
+      await page.locator('[data-testid="external-iframe"]').waitFor({ timeout: 5000 })
+      await page.frameLocator('[data-testid="external-iframe"]').locator('[data-testid="iframe-button"]').waitFor({ timeout: 5000 })
+
+      const frame = page.frames().find((candidate) => {
+        return candidate.url().includes('/iframe.html')
+      })
+      if (!frame) {
+        throw new Error('Iframe frame not found')
+      }
+
+      const { snapshot } = await getAriaSnapshot({
+        page,
+        frame,
+        wsUrl: getCdpUrl({ port: TEST_PORT }),
+      })
+
+      expect(snapshot).toContain('Iframe Heading')
+      expect(snapshot).toContain('[data-testid="iframe-button"]')
+      expect(snapshot).not.toContain('Outer Heading')
+    } finally {
+      await outerServer.close()
+      await iframeServer.close()
+    }
+  }, 30000)
 })
