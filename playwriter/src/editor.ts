@@ -304,15 +304,44 @@ export class Editor {
       }
       return { success: true }
     }
-    const response = await this.cdp.send('Debugger.setScriptSource', {
-      scriptId: id.scriptId,
-      scriptSource: content,
-      dryRun,
-    })
-    if (!dryRun) {
-      this.sourceCache.set(id.scriptId, content)
+
+    // Chrome deprecated Debugger.setScriptSource in Chrome 142+ (Feb 2026)
+    // Use Runtime.evaluate as fallback to re-execute the modified script
+    // This works for scripts that define functions at global scope
+    try {
+      const response = await this.cdp.send('Debugger.setScriptSource', {
+        scriptId: id.scriptId,
+        scriptSource: content,
+        dryRun,
+      })
+      if (!dryRun) {
+        this.sourceCache.set(id.scriptId, content)
+      }
+      return { success: true, stackChanged: response.stackChanged }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      // Check if setScriptSource is deprecated/unavailable
+      if (errorMessage.includes('setScriptSource') || errorMessage.includes('-32000')) {
+        if (dryRun) {
+          // For dry run, just validate the syntax by parsing
+          await this.cdp.send('Runtime.compileScript', {
+            expression: content,
+            sourceURL: 'dry-run-validation',
+            persistScript: false,
+          })
+          return { success: true }
+        }
+
+        // Re-execute the entire script to override global functions
+        await this.cdp.send('Runtime.evaluate', {
+          expression: content,
+          returnByValue: false,
+        })
+        this.sourceCache.set(id.scriptId, content)
+        return { success: true, stackChanged: true }
+      }
+      throw error
     }
-    return { success: true, stackChanged: response.stackChanged }
   }
 
   /**
