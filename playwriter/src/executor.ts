@@ -3,7 +3,7 @@
  * Used by both MCP and CLI to execute Playwright code with persistent state.
  */
 
-import { Page, Browser, BrowserContext, chromium, Locator } from 'playwright-core'
+import { Page, Frame, Browser, BrowserContext, chromium, Locator } from 'playwright-core'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -531,7 +531,8 @@ export class PlaywrightExecutor {
       }
 
       const accessibilitySnapshot = async (options: {
-        page: Page
+        page?: Page
+        iframe?: Locator
         /** Optional locator to scope the snapshot to a subtree */
         locator?: Locator
         search?: string | RegExp
@@ -541,11 +542,16 @@ export class PlaywrightExecutor {
         /** Only include interactive elements (default: true) */
         interactiveOnly?: boolean
       }) => {
-        const { page: targetPage, locator, search, showDiffSinceLastCall = true, interactiveOnly = false } = options
+        const { page: targetPage, iframe, locator, search, showDiffSinceLastCall = true, interactiveOnly = false } = options
+        const resolvedPage = targetPage || page
+        if (!resolvedPage) {
+          throw new Error('accessibilitySnapshot requires a page')
+        }
 
         // Use new in-page implementation via getAriaSnapshot
         const { snapshot: rawSnapshot, refs, getSelectorForRef } = await getAriaSnapshot({
-          page: targetPage,
+          page: resolvedPage,
+          iframe,
           locator,
           wsUrl: getCdpUrl(this.cdpConfig),
           interactiveOnly,
@@ -559,13 +565,16 @@ export class PlaywrightExecutor {
             refToLocator.set(entry.shortRef, locatorStr)
           }
         }
-        this.lastRefToLocator.set(targetPage, refToLocator)
+        this.lastRefToLocator.set(resolvedPage, refToLocator)
 
-        const previousSnapshot = this.lastSnapshots.get(targetPage)
-        this.lastSnapshots.set(targetPage, snapshotStr)
+        const shouldCacheSnapshot = !iframe
+        const previousSnapshot = shouldCacheSnapshot ? this.lastSnapshots.get(resolvedPage) : undefined
+        if (shouldCacheSnapshot) {
+          this.lastSnapshots.set(resolvedPage, snapshotStr)
+        }
 
         // Return diff if we have a previous snapshot and diff mode is enabled
-        if (showDiffSinceLastCall && previousSnapshot) {
+        if (showDiffSinceLastCall && previousSnapshot && shouldCacheSnapshot) {
           const diffResult = createSmartDiff({
             oldContent: previousSnapshot,
             newContent: snapshotStr,

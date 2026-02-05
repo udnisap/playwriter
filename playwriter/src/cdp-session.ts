@@ -12,7 +12,7 @@ import { getCdpUrl } from './utils.js'
  * is assignable to this interface.
  */
 export interface ICDPSession {
-  send(method: string, params?: object): Promise<unknown>
+  send(method: string, params?: object, sessionId?: string | null): Promise<unknown>
   on(event: string, callback: (params: any) => void): unknown
   off(event: string, callback: (params: any) => void): unknown
   detach(): Promise<void>
@@ -76,6 +76,12 @@ export class CDPSession implements ICDPSession {
   send<K extends keyof ProtocolMapping.Commands>(
     method: K,
     params?: ProtocolMapping.Commands[K]['paramsType'][0],
+    // Some iframes are OOPIF targets with their own CDP session. Their frameId
+    // only exists inside that target session, so AX/DOM commands must be sent
+    // with the iframe's Target.attachToTarget sessionId instead of the page
+    // sessionId. This override lets us reuse the same websocket while routing
+    // a single command to the correct target session.
+    sessionId?: string | null,
   ): Promise<ProtocolMapping.Commands[K]['returnType']> {
     const id = ++this.messageId
     const message: {
@@ -85,8 +91,9 @@ export class CDPSession implements ICDPSession {
       sessionId?: string
       source?: 'playwriter'
     } = { id, method, params, source: 'playwriter' }
-    if (this.sessionId) {
-      message.sessionId = this.sessionId
+    const resolvedSessionId = sessionId ?? this.sessionId
+    if (resolvedSessionId) {
+      message.sessionId = resolvedSessionId
     }
 
     return new Promise((resolve, reject) => {

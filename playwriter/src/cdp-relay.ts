@@ -1153,6 +1153,7 @@ export async function startPlayWriterCDPRelayServer({
 
           if (method === 'Target.attachedToTarget') {
             const targetParams = params as Protocol.Target.AttachedToTargetEvent
+            const incomingSessionId = sessionId
             const iframeParentFrameId = targetParams.targetInfo.parentFrameId
             const iframeOwnerSessionId = targetParams.targetInfo.type === 'iframe' && iframeParentFrameId
               ? getPageTargetForFrameId({ connection, frameId: iframeParentFrameId })?.sessionId
@@ -1200,7 +1201,13 @@ export async function startPlayWriterCDPRelayServer({
             if (!alreadyConnected) {
               sendToPlaywright({
                 message: {
-                  sessionId: iframeOwnerSessionId,
+                  // Iframe targets must be routed to the parent page sessionId so Playwright attaches them under the right page.
+                  // - iframeOwnerSessionId: derived parent session via parentFrameId -> page sessionId (frameId tracking).
+                  // - incomingSessionId: extension event sessionId for the parent tab.
+                  // The frameId mapping is racy: Target.attachedToTarget can arrive before Page.frameAttached/Page.frameNavigated populate frameIds.
+                  // When iframeOwnerSessionId is missing we must fall back to incomingSessionId, otherwise Playwright receives the attach on the root
+                  // session, detaches it, and the iframe stays paused (waitingForDebugger) which can hang navigations.
+                  sessionId: iframeOwnerSessionId ?? incomingSessionId,
                   method: 'Target.attachedToTarget',
                   params: targetParams
                 } as CDPEventBase,
