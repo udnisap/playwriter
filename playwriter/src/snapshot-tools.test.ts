@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import { imageSize } from 'image-size'
 import { getCdpUrl } from './utils.js'
-import { getCDPSessionForPage } from './cdp-session.js'
+import { getCDPSessionForPage, getExistingCDPSessionForPage } from './cdp-session.js'
 import type { CDPCommand } from './cdp-types.js'
 import { screenshotWithAccessibilityLabels } from './aria-snapshot.js'
 import { setupTestContext, cleanupTestContext, getExtensionServiceWorker, type TestContext, js } from './test-utils.js'
@@ -571,6 +571,43 @@ describe('Snapshot & Screenshot Tests', () => {
         expect(layoutMetrics.cssVisualViewport.clientWidth).toBeGreaterThan(0)
 
         cdpClient.close()
+        await browser.close()
+        await page.close()
+    }, 60000)
+
+    it('should support getExistingCDPSession through the relay (reusing Playwright WS)', async () => {
+        const browserContext = getBrowserContext()
+        const serviceWorker = await getExtensionServiceWorker(browserContext)
+
+        const page = await browserContext.newPage()
+        await page.goto('https://example.com/')
+        await page.bringToFront()
+
+        await serviceWorker.evaluate(async () => {
+            await globalThis.toggleExtensionForActiveTab()
+        })
+
+        await new Promise(r => setTimeout(r, 100))
+
+        const browser = await chromium.connectOverCDP(getCdpUrl({ port: TEST_PORT }))
+        const cdpPage = browser.contexts()[0].pages().find(p => p.url().includes('example.com'))
+        expect(cdpPage).toBeDefined()
+
+        // Use the new getExistingCDPSessionForPage which reuses Playwright's internal WS
+        const cdpClient = await getExistingCDPSessionForPage({ page: cdpPage! })
+
+        // Should be able to send CDP commands just like the regular getCDPSessionForPage
+        const layoutMetrics = await cdpClient.send('Page.getLayoutMetrics')
+        expect(layoutMetrics).toBeDefined()
+        const metrics = layoutMetrics as { cssVisualViewport?: { clientWidth?: number } }
+        expect(metrics.cssVisualViewport).toBeDefined()
+        expect(metrics.cssVisualViewport!.clientWidth).toBeGreaterThan(0)
+
+        // Test DOM access
+        const document = await cdpClient.send('DOM.getDocument')
+        expect(document).toBeDefined()
+
+        await cdpClient.detach()
         await browser.close()
         await page.close()
     }, 60000)

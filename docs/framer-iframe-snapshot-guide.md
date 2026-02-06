@@ -45,9 +45,14 @@ playwriter -s 1 -e "const iframe = page.locator(\"iframe[src*='plugins.framercdn
 playwriter -s 1 -e "const iframe = page.locator(\"iframe[src*='plugins.framercdn.com']\"); console.log(await iframe.count());"
 ```
 
-- Run the accessibility snapshot on that iframe:
+- Run the accessibility snapshot on that iframe using `contentFrame()` (FrameLocator is auto-resolved to Frame):
 ```bash
 playwriter -s 1 -e "const frame = await page.locator(\"iframe[src*='plugins.framercdn.com']\").contentFrame(); console.log(await accessibilitySnapshot({ page, frame }));"
+```
+
+- Alternative: use `page.frames()` to get the Frame directly:
+```bash
+playwriter -s 1 -e "const frame = page.frames().find(f => f.url().includes('plugins.framercdn.com')); console.log(await accessibilitySnapshot({ page, frame }));"
 ```
 
 - Validate the snapshot contains MCP UI text (confirms the panel is actually loaded):

@@ -1,5 +1,5 @@
 import WebSocket from 'ws'
-import type { Page } from '@xmorse/playwright-core'
+import type { Page, CDPSession as PlaywrightCDPSession } from '@xmorse/playwright-core'
 import type { ProtocolMapping } from 'devtools-protocol/types/protocol-mapping.js'
 import type { CDPResponseBase, CDPEventBase } from './cdp-types.js'
 import { getCdpUrl } from './utils.js'
@@ -232,4 +232,51 @@ export async function getCDPSessionForPage({ page, wsUrl }: { page: Page; wsUrl?
   cdp.setSessionId(sessionId)
 
   return cdp
+}
+
+/**
+ * Wraps Playwright's CDPSession (from context.getExistingCDPSession) into an ICDPSession.
+ * This reuses Playwright's internal CDP WebSocket instead of creating a new one,
+ * which is important for the relay server where Target.attachToTarget is intercepted.
+ *
+ * The adapter maps between devtools-protocol's ProtocolMapping types (used by our CDPSession)
+ * and Playwright's Protocol types (used by their CDPSession). Both are compatible since
+ * ICDPSession uses loose string-based method names.
+ */
+export class PlaywrightCDPSessionAdapter implements ICDPSession {
+  private _playwrightSession: PlaywrightCDPSession
+
+  constructor(playwrightSession: PlaywrightCDPSession) {
+    this._playwrightSession = playwrightSession
+  }
+
+  async send(method: string, params?: object): Promise<unknown> {
+    return await this._playwrightSession.send(method as never, params as never)
+  }
+
+  on(event: string, callback: (params: unknown) => void): this {
+    this._playwrightSession.on(event as never, callback as never)
+    return this
+  }
+
+  off(event: string, callback: (params: unknown) => void): this {
+    this._playwrightSession.off(event as never, callback as never)
+    return this
+  }
+
+  async detach(): Promise<void> {
+    await this._playwrightSession.detach()
+  }
+}
+
+/**
+ * Gets a CDP session for a page by reusing Playwright's internal existing CDP session.
+ * Unlike getCDPSessionForPage which creates a new WebSocket, this uses the same WS
+ * Playwright already has. Works through the relay because it doesn't call
+ * Target.attachToTarget.
+ */
+export async function getExistingCDPSessionForPage({ page }: { page: Page }): Promise<PlaywrightCDPSessionAdapter> {
+  const context = page.context()
+  const playwrightSession = await context.getExistingCDPSession(page)
+  return new PlaywrightCDPSessionAdapter(playwrightSession)
 }

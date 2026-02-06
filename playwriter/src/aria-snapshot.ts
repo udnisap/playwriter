@@ -1,7 +1,7 @@
 // Accessibility snapshot pipeline: build raw AX tree, filter to a
 // tree (interactive-only, labels/contexts, wrapper hoisting, ignored
 // indent preservation), then render lines and locators.
-import type { Page, Locator, ElementHandle, Frame } from '@xmorse/playwright-core'
+import type { Page, Locator, ElementHandle, Frame, FrameLocator } from '@xmorse/playwright-core'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -724,6 +724,44 @@ function isSubstringOfAny(needle: string, haystack: Set<string>): boolean {
 }
 
 // ============================================================================
+// Frame Resolution
+// ============================================================================
+
+/**
+ * Resolve a FrameLocator to an actual Frame object. FrameLocator (returned by
+ * locator.contentFrame()) is a scoping helper that doesn't have CDP methods like
+ * frameId(). We need the real Frame from page.frames() for OOPIF session attachment.
+ *
+ * If a Frame is passed directly, it's returned as-is.
+ * If a FrameLocator is passed, we find the matching Frame by locating the iframe
+ * element and matching its src URL against page.frames().
+ */
+async function resolveFrame({ frame, page }: { frame?: Frame | FrameLocator; page: Page }): Promise<Frame | undefined> {
+  if (!frame) {
+    return undefined
+  }
+  // Frame has frameId(), FrameLocator does not
+  if (typeof (frame as Frame).frameId === 'function') {
+    return frame as Frame
+  }
+  // It's a FrameLocator — resolve to a Frame via the owner iframe element.
+  // Use elementHandle().contentFrame() which returns the actual Frame object
+  // directly from the <iframe> element, avoiding ambiguity when multiple
+  // frames share the same origin (e.g. framer plugin iframes).
+  const frameLocator = frame as FrameLocator
+  const owner = frameLocator.owner()
+  const handle = await owner.elementHandle()
+  if (!handle) {
+    throw new Error('Could not resolve FrameLocator to a Frame: iframe element not found')
+  }
+  const resolved = await handle.contentFrame()
+  if (!resolved) {
+    throw new Error('Could not resolve FrameLocator to a Frame: contentFrame() returned null')
+  }
+  return resolved
+}
+
+// ============================================================================
 // Main Functions
 // ============================================================================
 
@@ -748,7 +786,7 @@ function isSubstringOfAny(needle: string, haystack: Set<string>): boolean {
  */
 export async function getAriaSnapshot({ page, frame, locator, refFilter, wsUrl, interactiveOnly = false, cdp }: {
   page: Page
-  frame?: Frame
+  frame?: Frame | FrameLocator
   locator?: Locator
   refFilter?: (info: { role: string; name: string }) => boolean
   wsUrl?: string
@@ -756,15 +794,20 @@ export async function getAriaSnapshot({ page, frame, locator, refFilter, wsUrl, 
   cdp?: ICDPSession
 }): Promise<AriaSnapshotResult> {
   const session = cdp || await getCDPSessionForPage({ page, wsUrl })
+
+  // Resolve FrameLocator to an actual Frame. FrameLocator (from locator.contentFrame())
+  // is a scoping helper without CDP access. We need the real Frame from page.frames()
+  // which has frameId() for OOPIF session attachment.
+  const resolvedFrame = await resolveFrame({ frame, page })
   
   // For cross-origin iframes (OOPIFs), we need to attach to the iframe's target
   // to get a separate CDP session. Same-origin iframes can use frameId directly.
   let oopifSessionId: string | null = null
-  const frameId = frame?.frameId() ?? null
+  const frameId = resolvedFrame?.frameId() ?? null
   
   if (frameId) {
     const { targetInfos } = await session.send('Target.getTargets') as Protocol.Target.GetTargetsResponse
-    const frameUrl = frame!.url()
+    const frameUrl = resolvedFrame!.url()
     const iframeTarget = targetInfos.find((t) => {
       return t.type === 'iframe' && t.url === frameUrl
     })

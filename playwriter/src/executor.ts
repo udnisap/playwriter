@@ -3,7 +3,7 @@
  * Used by both MCP and CLI to execute Playwright code with persistent state.
  */
 
-import { Page, Frame, Browser, BrowserContext, chromium, Locator } from '@xmorse/playwright-core'
+import { Page, Frame, Browser, BrowserContext, chromium, Locator, FrameLocator } from '@xmorse/playwright-core'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -16,7 +16,7 @@ import * as acorn from 'acorn'
 import { createSmartDiff } from './diff-utils.js'
 import { getCdpUrl } from './utils.js'
 import { waitForPageLoad, WaitForPageLoadOptions, WaitForPageLoadResult } from './wait-for-page-load.js'
-import { getCDPSessionForPage, CDPSession, ICDPSession } from './cdp-session.js'
+import { getCDPSessionForPage, CDPSession, ICDPSession, getExistingCDPSessionForPage } from './cdp-session.js'
 import { Debugger } from './debugger.js'
 import { Editor } from './editor.js'
 import { getStylesForLocator, formatStylesAsText, type StylesResult } from './styles.js'
@@ -218,7 +218,7 @@ export class PlaywrightExecutor {
   private browserLogs: Map<string, string[]> = new Map()
   private lastSnapshots: WeakMap<Page, string> = new WeakMap()
   private lastRefToLocator: WeakMap<Page, Map<string, string>> = new WeakMap()
-  private cdpSessionCache: WeakMap<Page, CDPSession> = new WeakMap()
+  private cdpSessionCache: WeakMap<Page, ICDPSession> = new WeakMap()
   private scopedFs: ScopedFS
   private sandboxedRequire: NodeRequire
 
@@ -533,8 +533,8 @@ export class PlaywrightExecutor {
 
       const accessibilitySnapshot = async (options: {
         page?: Page
-        /** Optional frame to scope the snapshot (e.g. from iframe.contentFrame()) */
-        frame?: Frame
+        /** Optional frame to scope the snapshot (e.g. from iframe.contentFrame() or page.frames()) */
+        frame?: Frame | FrameLocator
         /** Optional locator to scope the snapshot to a subtree */
         locator?: Locator
         search?: string | RegExp
@@ -723,9 +723,10 @@ export class PlaywrightExecutor {
           return cached
         }
 
-        // Generate a fresh unique URL for each CDP session to avoid client ID conflicts
-        const wsUrl = getCdpUrl(this.cdpConfig)
-        const session = await getCDPSessionForPage({ page: options.page, wsUrl })
+        // Reuse Playwright's internal CDP session over the same WebSocket instead of
+        // creating a new WS connection. This is critical for the relay where
+        // Target.attachToTarget is intercepted and can't create real new sessions.
+        const session = await getExistingCDPSessionForPage({ page: options.page })
         this.cdpSessionCache.set(options.page, session)
 
         options.page.on('close', () => {
@@ -734,7 +735,9 @@ export class PlaywrightExecutor {
             return
           }
           this.cdpSessionCache.delete(options.page)
-          cachedSession.close()
+          // Borrowed sessions: detach is a no-op since Playwright owns the underlying session.
+          // We just clean up the cache reference.
+          cachedSession.detach().catch(() => {})
         })
 
         return session

@@ -6,7 +6,7 @@ The getStylesForLocator function inspects CSS styles applied to an element, simi
 
 ```ts
 import type { ICDPSession } from './cdp-session.js';
-import type { Locator } from 'playwright-core';
+import type { Locator } from '@xmorse/playwright-core';
 export interface StyleSource {
     url: string;
     line: number;

@@ -1,6 +1,6 @@
 export * from './cdp-relay.js'
 export * from './utils.js'
-export { CDPSession, getCDPSessionForPage } from './cdp-session.js'
+export { CDPSession, getCDPSessionForPage, getExistingCDPSessionForPage, PlaywrightCDPSessionAdapter } from './cdp-session.js'
 export type { ICDPSession } from './cdp-session.js'
 export { Editor } from './editor.js'
 export type { ReadResult, SearchMatch, EditResult } from './editor.js'
