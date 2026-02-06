@@ -244,7 +244,7 @@ View relay server logs to debug issues:
 
 ```bash
 playwriter logfile  # prints the log file path
-# typically: /tmp/playwriter/relay-server.log (Linux/macOS)
+# typically: ~/.playwriter/relay-server.log
 ```
 
 The relay log contains extension, MCP and WebSocket server logs. A separate CDP JSONL log is also created alongside it (see `playwriter logfile`). Both are recreated on each server start.
@@ -252,7 +252,7 @@ The relay log contains extension, MCP and WebSocket server logs. A separate CDP 
 Example: summarize CDP traffic counts by direction + method:
 
 ```bash
-jq -r '.direction + "\t" + (.message.method // "response")' /tmp/playwriter/cdp.jsonl | uniq -c
+jq -r '.direction + "\t" + (.message.method // "response")' ~/.playwriter/cdp.jsonl | uniq -c
 ```
 
 ## Known Issues

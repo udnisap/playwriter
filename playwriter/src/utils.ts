@@ -33,8 +33,9 @@ export function getCdpUrl({
   return `ws://${host}:${port}/cdp/${id}${suffix}`
 }
 
-const LOG_BASE_DIR = os.platform() === 'win32' ? os.tmpdir() : '/tmp'
-export const LOG_FILE_PATH = process.env.PLAYWRITER_LOG_FILE_PATH || path.join(LOG_BASE_DIR, 'playwriter', 'relay-server.log')
+// Use ~/.playwriter for logs so each OS user gets their own dir (avoids permission errors on shared machines, see #44)
+const LOG_BASE_DIR = path.join(os.homedir(), '.playwriter')
+export const LOG_FILE_PATH = process.env.PLAYWRITER_LOG_FILE_PATH || path.join(LOG_BASE_DIR, 'relay-server.log')
 export const LOG_CDP_FILE_PATH = process.env.PLAYWRITER_CDP_LOG_FILE_PATH || path.join(path.dirname(LOG_FILE_PATH), 'cdp.jsonl')
 
 const packageJsonPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'package.json')

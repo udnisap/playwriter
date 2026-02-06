@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.57
+
+### Bug Fixes
+
+- **Fix log dir permissions on shared machines**: Move default log directory from `/tmp/playwriter` to `~/.playwriter` so each OS user gets their own directory. Fixes startup crash when `/tmp/playwriter` is owned by another user (#44).
+
 ## 0.0.56
 
 ### Bug Fixes

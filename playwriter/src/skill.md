@@ -96,11 +96,11 @@ EOF
 
 ### Debugging playwriter issues
 
-If some internal critical error happens you can read the relay server logs to understand the issue. The log file is located in the system temp directory:
+If some internal critical error happens you can read the relay server logs to understand the issue. The log file is located in the user home directory:
 
 ```bash
 playwriter logfile  # prints the log file path
-# typically: /tmp/playwriter/relay-server.log (Linux/macOS) or %TEMP%\playwriter\relay-server.log (Windows)
+# typically: ~/.playwriter/relay-server.log
 ```
 
 The relay log contains logs from the extension, MCP and WS server. A separate CDP JSONL log is created alongside it (see `playwriter logfile`) with all CDP commands/responses and events, with long strings truncated. Both files are recreated every time the server starts. For debugging internal playwriter errors, read these files with grep/rg to find relevant lines.
@@ -108,7 +108,7 @@ The relay log contains logs from the extension, MCP and WS server. A separate CD
 Example: summarize CDP traffic counts by direction + method:
 
 ```bash
-jq -r '.direction + "\t" + (.message.method // "response")' /tmp/playwriter/cdp.jsonl | uniq -c
+jq -r '.direction + "\t" + (.message.method // "response")' ~/.playwriter/cdp.jsonl | uniq -c
 ```
 
 If you find a bug, you can create a gh issue using `gh issue create -R remorses/playwriter --title title --body body`. Ask for user confirmation before doing this.

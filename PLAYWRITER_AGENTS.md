@@ -269,7 +269,7 @@ you can find the logfile for playwriter executing `playwriter logfile`. read tha
  `playwriter logfile` also logs a jsonl file with all CDP commands and events being sent between extension, cli, mcp and relay. the cdp log is a jsonl file (one json object per line). you can use jq to process and read it efficiently. for example, list direction + method:
 
 ```bash
-jq -r '.direction + "\t" + (.message.method // "response")' /tmp/playwriter/cdp.jsonl | uniq -c
+jq -r '.direction + "\t" + (.message.method // "response")' ~/.playwriter/cdp.jsonl | uniq -c
 ```
 
 ## testing iframe behaviour with snapshots and out of process frames
