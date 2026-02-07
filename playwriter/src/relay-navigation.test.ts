@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { chromium } from '@xmorse/playwright-core'
+import { chromium, type Page } from '@xmorse/playwright-core'
 import { getCdpUrl } from './utils.js'
 import { setupTestContext, cleanupTestContext, getExtensionServiceWorker, type TestContext, withTimeout, createSimpleServer } from './test-utils.js'
 import './test-declarations.js'
@@ -21,6 +21,35 @@ describe('Relay Navigation Tests', () => {
     const getBrowserContext = () => {
         if (!testCtx?.browserContext) throw new Error('Browser not initialized')
         return testCtx.browserContext
+    }
+
+    const waitForStableDocumentReadyState = async ({
+        page,
+        timeoutMs,
+    }: {
+        page: Page
+        timeoutMs: number
+    }) => {
+        const startTime = Date.now()
+
+        while (Date.now() - startTime < timeoutMs) {
+            try {
+                const readyState = await page.evaluate(() => {
+                    return document.readyState
+                })
+                if (readyState !== 'loading') {
+                    return
+                }
+            } catch (e) {
+                if (!(e instanceof Error) || !e.message.includes('Execution context was destroyed')) {
+                    throw new Error('Failed while waiting for stable document readyState', { cause: e })
+                }
+            }
+
+            await page.waitForTimeout(100)
+        }
+
+        throw new Error(`Timed out waiting for stable document readyState after ${timeoutMs}ms`)
     }
 
     it('should be usable after toggle with valid URL', async () => {
@@ -232,7 +261,7 @@ describe('Relay Navigation Tests', () => {
 
         expect(responseUrl).toContain('youtube')
         expect(currentUrl).toContain('youtube')
-        expect(await cdpPage!.evaluate(() => document.readyState)).not.toBe('loading')
+        await waitForStableDocumentReadyState({ page: cdpPage!, timeoutMs: 5000 })
 
         await browser.close()
         await page.close()
