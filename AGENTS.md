@@ -74,6 +74,10 @@ pnpm --filter mcp-extension reload  # builds and opens chrome://extensions page
 
 then click the reload button on the extension card in Chrome. the extension has a stable dev ID (`pebbngnfojnignonigcnkdilknapkgid`) so you don't need to reconfigure anything.
 
+## extension version
+
+after EVERY change made inside extension/ folder you MUST bump the manifest.json version and update the CHANGELOG.md file. then create a git tag with extension@version after committing.
+
 ### testing
 
 ```bash
