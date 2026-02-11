@@ -16,6 +16,14 @@ prompt: |
 
 ## Step-by-step
 
+- Always reuse an existing Framer tab when possible (do not open a new page each run).
+  Use this pattern to pick an existing page first, then navigate only if needed:
+```bash
+playwriter -s 1 -e "const target = 'https://framer.com/projects/unframer-source--XOxwdyyCrFEE9uKnKFPq-6gX7n?node=augiA20Il'; const framerPage = context.pages().find((p) => p.url().includes('framer.com/projects/unframer-source')) || page; if (!framerPage.url().includes('framer.com/projects/unframer-source')) { await framerPage.goto(target, { waitUntil: 'domcontentloaded' }); } console.log(framerPage.url());"
+```
+
+- Never call `bringToFront()` in this flow. It steals focus and interrupts manual work while tests are running.
+
 - Open the Framer project URL in Chrome:
   https://framer.com/projects/unframer-source--XOxwdyyCrFEE9uKnKFPq-6gX7n?node=augiA20Il
 
