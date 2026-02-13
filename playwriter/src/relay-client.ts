@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pc from 'picocolors'
-import { killPortProcess } from './kill-port.js'
+import { getListeningPidsForPort, killPortProcess } from './kill-port.js'
 import { VERSION, sleep, LOG_FILE_PATH } from './utils.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -71,11 +71,23 @@ export async function waitForExtension(options: {
   return false
 }
 
-async function killRelayServer(port: number): Promise<void> {
+async function killRelayServer(options: { port: number; waitForFreeMs?: number }): Promise<void> {
+  const { port, waitForFreeMs = 3000 } = options
+
   try {
     await killPortProcess({ port })
-    await sleep(500)
-  } catch {}
+  } catch {
+    return
+  }
+
+  const startTime = Date.now()
+  while (Date.now() - startTime < waitForFreeMs) {
+    const pids = await getListeningPidsForPort({ port }).catch(() => [])
+    if (pids.length === 0) {
+      return
+    }
+    await sleep(100)
+  }
 }
 
 /**
@@ -128,12 +140,18 @@ export async function ensureRelayServer(options: EnsureRelayServerOptions = {}):
   if (serverVersion !== null) {
     if (restartOnVersionMismatch) {
       logger?.log(pc.yellow(`CDP relay server version mismatch (server: ${serverVersion}, client: ${VERSION}), restarting...`))
-      await killRelayServer(RELAY_PORT)
+      await killRelayServer({ port: RELAY_PORT })
     } else {
       // Server is running but different version, just use it
       return
     }
   } else {
+    const listeningPids = await getListeningPidsForPort({ port: RELAY_PORT }).catch(() => [])
+    if (listeningPids.length > 0) {
+      logger?.log(pc.yellow(`Port ${RELAY_PORT} is already in use (pid(s): ${listeningPids.join(', ')}). Attempting to stop the existing process...`))
+      await killRelayServer({ port: RELAY_PORT })
+    }
+
     logger?.log(pc.dim('CDP relay server not running, starting it...'))
   }
 
@@ -152,9 +170,11 @@ export async function ensureRelayServer(options: EnsureRelayServerOptions = {}):
 
   serverProcess.unref()
 
+  const startTimeoutMs = 5000
+  const startTime = Date.now()
 
-  for (let i = 0; i < 10; i++) {
-    await sleep(500)
+  while (Date.now() - startTime < startTimeoutMs) {
+    await sleep(200)
     const newVersion = await getRelayServerVersion(RELAY_PORT)
     if (newVersion) {
       logger?.log(pc.green('CDP relay server started successfully'))
@@ -163,5 +183,6 @@ export async function ensureRelayServer(options: EnsureRelayServerOptions = {}):
     }
   }
 
-  throw new Error(`Failed to start CDP relay server after 5 seconds. Check logs at: ${LOG_FILE_PATH}`)
+  const waitedMs = Date.now() - startTime
+  throw new Error(`Failed to start CDP relay server within ${waitedMs}ms. Check logs at: ${LOG_FILE_PATH}`)
 }

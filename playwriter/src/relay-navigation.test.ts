@@ -261,11 +261,13 @@ describe('Relay Navigation Tests', () => {
                     errorMessage: 'Timed out waiting for plugin frame URL in empty-src iframe test',
                 })
 
-                const buttonCount = await withTimeout({
-                    promise: pluginFrame.locator('button').count(),
+                await withTimeout({
+                    promise: pluginFrame.locator('button').first().waitFor({ state: 'attached' }),
                     timeoutMs: 5000,
-                    errorMessage: 'Timed out counting button locator in empty-src iframe test',
+                    errorMessage: 'Timed out waiting for button locator in empty-src iframe test',
                 })
+
+                const buttonCount = await pluginFrame.locator('button').count()
                 expect(buttonCount).toBe(1)
             } finally {
                 await withTimeout({

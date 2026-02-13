@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.60
+
+### Bug Fixes
+
+- **Fix relay startup EADDRINUSE timeouts**: If the relay port is already bound but `/version` is not responding, Playwriter now detects the listening PID(s), stops the existing process, and only then starts the relay (the 5s startup timeout now measures post-spawn readiness, not port cleanup time).
+- **Harden port-kill implementation**: Replaced Playwriter's port killer with an implementation that mirrors `kill-port-process` (lsof/grep/awk/xargs on unix; taskkill on Windows) and includes the `xargs.stdout` pipe fix from upstream PR #199.
+
+### Tests
+
+- **Add kill-port subprocess test**: New test starts a real HTTP server subprocess on an ephemeral port, measures kill latency, and asserts the port is released.
+
 ## 0.0.59
 
 ### Bug Fixes
