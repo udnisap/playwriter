@@ -4,12 +4,13 @@
  * This mirrors the approach used by the `kill-port-process` npm package:
  * https://github.com/hilleer/kill-port-process
  *
- * Important fix (ported from https://github.com/hilleer/kill-port-process/pull/199):
- * do NOT pipe `xargs.stdout` into `process.stdin` (stdin is not writable and can
- * throw `dest.end is not a function`). We simply don't pipe `xargs` stdout.
+ * Notes:
+ * - Windows: discover listeners via PowerShell/netstat and kill via taskkill.
+ * - Unix: discover listeners via lsof (preferred) or fuser (fallback) and kill via
+ *   process.kill(). This intentionally avoids shell pipelines (grep/awk/xargs).
  */
 
-import { execFile, spawn } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import os from 'node:os'
 import { promisify } from 'node:util'
 
@@ -22,16 +23,10 @@ function isValidPort(port: number): boolean {
 }
 
 function parsePids(output: string): number[] {
-  const pids = output
-    .split(/\r?\n/g)
-    .map((line) => {
-      return line.trim()
-    })
-    .filter((line) => {
-      return Boolean(line)
-    })
-    .map((line) => {
-      return Number(line)
+  const matches = output.match(/\d+/g) || []
+  const pids = matches
+    .map((text) => {
+      return Number(text)
     })
     .filter((pid) => {
       return Number.isInteger(pid) && pid > 0
@@ -115,6 +110,15 @@ async function getPidsForPortWindows(port: number): Promise<number[]> {
 
 async function getPidsForPortUnix(port: number): Promise<number[]> {
   try {
+    // Prefer lsof's built-in filtering and pid-only output.
+    const { stdout } = await execFileAsync('lsof', ['-n', '-P', '-i', `TCP:${port}`, '-sTCP:LISTEN', '-t'])
+    const pids = parsePids(stdout)
+    return pids
+  } catch {}
+
+  try {
+    // Compatibility fallback: some environments may have lsof but not support
+    // the exact flags above. Parse the tabular output.
     const { stdout } = await execFileAsync('lsof', ['-i', `tcp:${port}`])
     const pids = parseUnixLsofPids(stdout)
     if (pids.length > 0) {
@@ -125,7 +129,9 @@ async function getPidsForPortUnix(port: number): Promise<number[]> {
   // Fallback for Linux environments that may not have `lsof`.
   try {
     const { stdout } = await execFileAsync('fuser', [`${port}/tcp`])
-    return parsePids(stdout)
+    return parsePids(stdout).filter((pid) => {
+      return pid !== port
+    })
   } catch {
     return []
   }
@@ -160,62 +166,6 @@ async function terminatePidWindows(pid: number): Promise<void> {
   } catch {}
 }
 
-async function unixKillPortUsingPipes({ port, signal }: { port: number; signal: KillPortSignal }): Promise<void> {
-  const killCommand = signal === 'SIGTERM' ? '-15' : '-9'
-
-  await new Promise<void>((resolve, reject) => {
-    const lsof = spawn('lsof', ['-i', `tcp:${port}`], { stdio: ['ignore', 'pipe', 'pipe'] })
-    const grep = spawn('grep', ['LISTEN'], { stdio: ['pipe', 'pipe', 'pipe'] })
-    const awk = spawn('awk', ['{print $2}'], { stdio: ['pipe', 'pipe', 'pipe'] })
-    const xargs = spawn('xargs', ['kill', killCommand], { stdio: ['pipe', 'ignore', 'pipe'] })
-
-    if (!lsof.stdout || !grep.stdin || !grep.stdout || !awk.stdin || !awk.stdout || !xargs.stdin) {
-      reject(new Error('Failed to create stdio pipes for kill-port process chain'))
-      return
-    }
-
-    lsof.stdout.pipe(grep.stdin)
-    grep.stdout.pipe(awk.stdin)
-    awk.stdout.pipe(xargs.stdin)
-
-    // IMPORTANT: do not pipe xargs stdout anywhere.
-
-    const stderrChunks: string[] = []
-    const collectStderr = (name: string, stream: NodeJS.ReadableStream | null) => {
-      stream?.on('data', (data: unknown) => {
-        const text = data instanceof Buffer ? data.toString() : String(data)
-        stderrChunks.push(`${name} - ${text}`)
-      })
-    }
-
-    collectStderr('lsof', lsof.stderr)
-    collectStderr('grep', grep.stderr)
-    collectStderr('awk', awk.stderr)
-    collectStderr('xargs', xargs.stderr)
-
-    const onError = (name: string) => {
-      return (error: unknown) => {
-        reject(new Error(`kill-port process error in ${name}`, { cause: toError(error) }))
-      }
-    }
-
-    lsof.on('error', onError('lsof'))
-    grep.on('error', onError('grep'))
-    awk.on('error', onError('awk'))
-    xargs.on('error', onError('xargs'))
-
-    xargs.on('close', (code) => {
-      if (code === 0) {
-        resolve()
-        return
-      }
-
-      const extra = stderrChunks.length > 0 ? `\n${stderrChunks.join('\n')}` : ''
-      reject(new Error(`Failed to kill process on port ${port} (exit code ${code}).${extra}`))
-    })
-  })
-}
-
 /**
  * Kill any listening process bound to the provided TCP port.
  */
@@ -244,5 +194,28 @@ export async function killPortProcess({
     return
   }
 
-  await unixKillPortUsingPipes({ port, signal })
+  const pids = await getListeningPidsForPort({ port })
+  const currentPid = process.pid
+  const targetPids = pids.filter((pid) => {
+    return pid !== currentPid
+  })
+
+  if (targetPids.length === 0) {
+    return
+  }
+
+  await Promise.all(
+    targetPids.map(async (pid) => {
+      try {
+        process.kill(pid, signal)
+      } catch (error) {
+        const err = toError(error)
+        // If the process already exited between discovery and kill, ignore.
+        if ((err as NodeJS.ErrnoException).code === 'ESRCH') {
+          return
+        }
+        throw new Error(`Failed to kill pid ${pid} on port ${port}`, { cause: err })
+      }
+    }),
+  )
 }

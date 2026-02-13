@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.61
+
+### Improvements
+
+- **Simplified Unix port killing**: Replaced shell pipeline approach (lsof/grep/awk/xargs) with direct `lsof -t` for PID discovery and `process.kill()` for termination. This eliminates spawn overhead and makes the code more maintainable while improving reliability.
+
 ## 0.0.60
 
 ### Bug Fixes
