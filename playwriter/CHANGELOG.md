@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.0.62
+
+### Features
+
+- **Remote access support**: `PLAYWRITER_HOST` now accepts full URLs (e.g., `https://x-tunnel.traforo.dev`) in addition to plain hostnames, enabling secure remote browser access through tunnels like traforo
+- **WebSocket over HTTPS**: Automatically uses `wss://` protocol when connecting to HTTPS relay hosts
+- **Remote access documentation**: Added comprehensive guide covering architecture, setup, use cases, and security model for remote Playwriter access
+
+### Internal
+
+- **Centralized host parsing**: New `parseRelayHost()` utility handles URL/hostname detection and returns correct HTTP/WebSocket base URLs
+
 ## 0.0.61
 
 ### Improvements
