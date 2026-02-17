@@ -114,6 +114,26 @@ export async function startPlayWriterCDPRelayServer({
   }
   const playwrightClients = new Map<string, PlaywrightClient>()
 
+  const isPublicBind = host === '0.0.0.0' || host === '::'
+  const allowExtensionAnyIp =
+    process.env.PLAYWRITER_EXTENSION_ANY_IP === '1' || process.env.PLAYWRITER_EXTENSION_ANY_IP === 'true'
+
+  function isPrivateOrLocalAddress(address: string): boolean {
+    let addr = address
+    if (addr.startsWith('::ffff:')) {
+      addr = addr.slice(7)
+    }
+    if (addr === '127.0.0.1' || addr === '::1') return true
+    if (addr.startsWith('127.') || addr.startsWith('10.')) return true
+    if (addr.startsWith('192.168.')) return true
+    if (addr.startsWith('172.')) {
+      const second = parseInt(addr.slice(4).split('.')[0] || '0', 10)
+      if (second >= 16 && second <= 31) return true
+    }
+    if (addr.startsWith('fc') || addr.startsWith('fd') || addr.startsWith('fe80:')) return true
+    return false
+  }
+
   const getDefaultExtensionId = (): string | null => {
     return extensionConnections.keys().next().value || null
   }
@@ -1010,14 +1030,16 @@ export async function startPlayWriterCDPRelayServer({
   }
 
   app.get('/extension', (c, next) => {
-    // 1. Host Validation: The extension endpoint must ONLY be accessed from localhost.
-    // This prevents attackers on the network from hijacking the browser session
-    // even if the server is exposed via 0.0.0.0.
+    // 1. Host Validation: When bound to 127.0.0.1, only localhost. When bound to 0.0.0.0,
+    // allow private/local IPs (and optionally any IP via PLAYWRITER_EXTENSION_ANY_IP).
     const info = getConnInfo(c)
     const remoteAddress = info.remote.address
     const isLocalhost = remoteAddress === '127.0.0.1' || remoteAddress === '::1'
+    const allowedByHost =
+      isLocalhost ||
+      (isPublicBind && (isPrivateOrLocalAddress(remoteAddress ?? '') || allowExtensionAnyIp))
 
-    if (!isLocalhost) {
+    if (!allowedByHost) {
       logger?.log(pc.red(`Rejecting /extension WebSocket from remote IP: ${remoteAddress}`))
       return c.text('Forbidden - Extension must be local', 403)
     }

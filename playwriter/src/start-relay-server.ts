@@ -42,4 +42,8 @@ export async function startServer({ port = 19988, host = '127.0.0.1', token }: {
 
   return server
 }
-startServer().catch(logger.error)
+
+const port = Number(process.env.PLAYWRITER_PORT) || 19988
+const host = process.env.PLAYWRITER_BIND_HOST || '127.0.0.1'
+const token = process.env.PLAYWRITER_TOKEN
+startServer({ port, host, token }).catch(logger.error)
