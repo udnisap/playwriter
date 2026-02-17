@@ -21,7 +21,7 @@ process.on('exit', async (code) => {
 });
 
 
-export async function startServer({ port = 19988, host = '127.0.0.1', token }: { port?: number; host?: string; token?: string } = {}) {
+export async function startServer({ port = 19988, host = '0.0.0.0', token }: { port?: number; host?: string; token?: string } = {}) {
   const server = await startPlayWriterCDPRelayServer({ port, host, token, logger })
 
   console.log('CDP Relay Server running. Press Ctrl+C to stop.')
@@ -44,6 +44,6 @@ export async function startServer({ port = 19988, host = '127.0.0.1', token }: {
 }
 
 const port = Number(process.env.PLAYWRITER_PORT) || 19988
-const host = process.env.PLAYWRITER_BIND_HOST || '127.0.0.1'
+const host = process.env.PLAYWRITER_BIND_HOST || '0.0.0.0'
 const token = process.env.PLAYWRITER_TOKEN
 startServer({ port, host, token }).catch(logger.error)
